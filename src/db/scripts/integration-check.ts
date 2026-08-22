@@ -24,6 +24,7 @@ import {
   symptomTypes,
   userSettings,
 } from '@/db/schema';
+import { seedLookups } from '@/db/seed/run';
 import { nutrientsForGrams, resolveGrams } from '@/lib/nutrition';
 import { toLogDate } from '@/lib/time';
 import { expandDueDoses } from '@/services/medication/schedule';
@@ -407,6 +408,71 @@ for (let i = 0; i < 2; i++) {
   });
 }
 check('two as-needed doses on one day allowed', true);
+
+// --- Seed idempotency ---
+//
+// The whole point of `db:seed` is that it can be re-run: migrate.ts calls it on
+// every deploy. It could not, for a long time — food_tag_def and symptom_type
+// were unique on (user_id, key) with the default NULLS DISTINCT, so global rows
+// (user_id IS NULL) never collided, the upsert never fired, and each deploy
+// added another full set. It reached 4x in production before anyone noticed,
+// because nothing here looked at more than `.limit(1)`.
+console.log('\nseed idempotency');
+
+await seedLookups(db);
+await seedLookups(db);
+
+const globalDupes = await db.execute(sql`
+  select 'food_tag_def' as table_name, key, count(*) as n
+  from food_tag_def where user_id is null group by key having count(*) > 1
+  union all
+  select 'symptom_type', key, count(*)
+  from symptom_type where user_id is null group by key having count(*) > 1
+  union all
+  select 'joint', key, count(*)
+  from joint group by key having count(*) > 1
+`);
+check(
+  'seeding twice leaves one row per key',
+  globalDupes.length === 0,
+  globalDupes.length > 0 ? JSON.stringify(globalDupes.slice(0, 3)) : ''
+);
+
+// The seed arrays are themselves duplicate-free, so the totals are exact.
+const [tagCount] = await db.execute<{ n: number }>(
+  sql`select count(*)::int as n from food_tag_def where user_id is null`
+);
+const [symptomCount] = await db.execute<{ n: number }>(
+  sql`select count(*)::int as n from symptom_type where user_id is null`
+);
+check('53 global tag definitions', tagCount.n === 53, String(tagCount.n));
+check('47 global symptom types', symptomCount.n === 47, String(symptomCount.n));
+
+// The constraint, not the seed, is what makes the above true. Verify it
+// directly: NULLS NOT DISTINCT is the difference between a rejected insert and
+// a silent duplicate.
+await expectReject('a second global tag with the same key is rejected', () =>
+  db.insert(foodTagDefs).values({
+    userId: null,
+    key: 'gluten',
+    labelDe: 'Duplikat',
+    category: 'trigger',
+  })
+);
+
+// A user's own tag may reuse a global key — that is a different row, and the
+// constraint must still allow it.
+const [ownTag] = await db
+  .insert(foodTagDefs)
+  .values({
+    userId: user.id,
+    key: 'gluten',
+    labelDe: 'Eigene Kennzeichnung',
+    category: 'custom',
+  })
+  .returning({ id: foodTagDefs.id });
+check('a per-user tag may reuse a global key', !!ownTag);
+await db.delete(foodTagDefs).where(eq(foodTagDefs.id, ownTag.id));
 
 // Clean up. Meals have to go first: meal_item.food_id is deliberately
 // ON DELETE RESTRICT so that deleting a food can never quietly erase history,

@@ -1,7 +1,13 @@
 /**
- * Idempotent seed, keyed on `key`. Safe to re-run: it is executed both from
- * `npm run db:seed` locally and from the app on first sign-in, so a fresh
- * database is never empty when someone logs in.
+ * Seed for the global lookup tables, keyed on `key`. Runs from
+ * `npm run db:seed` locally and from the `migrate` init container on every
+ * deploy (src/db/migrate.ts).
+ *
+ * Re-running it is only safe because food_tag_def and symptom_type are unique
+ * on (user_id, key) with NULLS NOT DISTINCT. Global rows have user_id IS NULL,
+ * and under Postgres' default NULLS DISTINCT the ON CONFLICT below silently
+ * matches nothing — which is how production ended up with four copies of every
+ * tag, one per deploy. `db:check` guards the invariant.
  */
 import { sql } from 'drizzle-orm';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
@@ -37,6 +43,7 @@ export async function seedLookups(db: Database): Promise<{
       target: [foodTagDefs.userId, foodTagDefs.key],
       set: {
         labelDe: sql`excluded.label_de`,
+        descriptionDe: sql`excluded.description_de`,
         category: sql`excluded.category`,
         isAnalysed: sql`excluded.is_analysed`,
         primaryWindow: sql`excluded.primary_window`,

@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNull } from 'drizzle-orm';
 import { db } from '../index';
 import {
   dailyLogJoints,
@@ -223,8 +223,19 @@ export async function getStandaloneSymptoms(
   }));
 }
 
+/**
+ * The symptom picker: global types only, archived ones excluded.
+ *
+ * Both filters were missing, unlike in allTagDefs(). Without the user filter
+ * this returns every user's private types, and without the archived filter it
+ * keeps offering types that were explicitly retired.
+ */
 export async function allSymptomTypes() {
-  return db.select().from(symptomTypes).orderBy(asc(symptomTypes.sortOrder));
+  return db
+    .select()
+    .from(symptomTypes)
+    .where(and(isNull(symptomTypes.userId), isNull(symptomTypes.archivedAt)))
+    .orderBy(asc(symptomTypes.sortOrder));
 }
 
 export async function das28Joints() {

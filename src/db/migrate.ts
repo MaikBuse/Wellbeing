@@ -57,8 +57,11 @@ try {
   const db = drizzle(sql);
   await migrate(db, { migrationsFolder: './drizzle' });
   console.log('migrations applied');
-  // Seeds run here too: they are idempotent, and a database without symptom
-  // types or tags is not a usable app.
+  // Seeds run here too — a database without symptom types or tags is not a
+  // usable app. This is also why the lookup tables must stay unique on
+  // (user_id, key) with NULLS NOT DISTINCT: this line runs on every single
+  // deploy, so an upsert that fails to match duplicates the whole lookup set
+  // each time.
   const counts = await seedLookups(db);
   console.log('lookups seeded', JSON.stringify(counts));
 } catch (error) {

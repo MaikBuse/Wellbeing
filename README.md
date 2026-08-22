@@ -26,7 +26,7 @@ Drizzle ORM auf Postgres 17 · Auth.js v5 mit Zitadel-OIDC · mobile-first PWA.
 npm ci
 npm run db:up                    # Postgres 17 in Docker
 npm run db:migrate               # Schema anlegen
-npm run db:seed                  # Symptome, Tags, Gelenke (idempotent)
+npm run db:seed                  # Symptome, Tags, Gelenke (idempotent, s. db:check)
 cp .env.example .env.local       # AUTH_* ausfüllen, siehe unten
 npm run dev
 ```

@@ -3,6 +3,7 @@ import {
   pgTable,
   smallint,
   text,
+  unique,
   uniqueIndex,
   uuid,
   index,
@@ -20,6 +21,12 @@ import {
 /**
  * Seeded lookup tables. `user_id IS NULL` means a global seed row; a non-null
  * user_id is a row that person added.
+ *
+ * The uniqueness on (user_id, key) MUST be NULLS NOT DISTINCT. With Postgres'
+ * default NULLS DISTINCT, two global rows are never "equal", so the seed's
+ * ON CONFLICT (user_id, key) never fires and every run inserts a fresh copy of
+ * every row — and `migrate.ts` seeds on every deploy. `joint` escaped this only
+ * because its key column is NOT NULL and its index covers `key` alone.
  */
 
 export const foodTagDefs = pgTable(
@@ -45,7 +52,7 @@ export const foodTagDefs = pgTable(
     minDoseGrams: num('min_dose_grams').default(5),
     sortOrder: smallint('sort_order').notNull().default(100),
   },
-  (t) => [uniqueIndex('food_tag_def_key_uq').on(t.userId, t.key)]
+  (t) => [unique('food_tag_def_key_uq').on(t.userId, t.key).nullsNotDistinct()]
 );
 
 /**
@@ -86,7 +93,7 @@ export const symptomTypes = pgTable(
     sortOrder: smallint('sort_order').notNull().default(100),
     archivedAt: tsz('archived_at'),
   },
-  (t) => [uniqueIndex('symptom_type_key_uq').on(t.userId, t.key)]
+  (t) => [unique('symptom_type_key_uq').on(t.userId, t.key).nullsNotDistinct()]
 );
 
 export const joints = pgTable(
