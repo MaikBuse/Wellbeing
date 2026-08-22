@@ -38,29 +38,9 @@
   --radius-card: 1rem;
 }
 
-/* Dark mode: same hues, roles swapped. Surfaces become warm near-blacks, the
- * two lightest palette tones become foreground accents. */
-@media (prefers-color-scheme: dark) {
-  :root {
-    --color-bg: #1c1719;
-    --color-card: #272022;
-    --color-soft: #3a2c26;
-    --color-primary: #f1a885;
-    --color-primary-fg: #2a1408;
-    --color-primary-strong: #f6bfa3;
-    --color-secondary: #dfa3a1;
-    --color-calm: #b8c9d3;
-    --color-fg: #f6eff0;
-    --color-muted: #b3a3a6;
-    --color-line: #3a3033;
-    --color-danger: #e8908d;
-    --color-ok: #a8c2cf;
-  }
-}
-
 @layer base {
   html {
-    color-scheme: light dark;
+    color-scheme: light;
     -webkit-tap-highlight-color: transparent;
   }
 
