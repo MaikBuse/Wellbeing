@@ -1,10 +1,10 @@
 'use server';
 
 import { and, eq } from 'drizzle-orm';
-import { revalidatePath } from 'next/cache';
 import { requireUserWithSettings } from '@/auth.helpers';
 import { db } from '@/db';
 import { meals, symptomEntries, symptomEntrySymptoms } from '@/db/schema';
+import { revalidateDay } from '@/lib/revalidate';
 import { toLogDate } from '@/lib/time';
 import { createSymptomEntrySchema } from '@/lib/validation/symptom';
 import type { ActionResult } from './meals';
@@ -74,7 +74,7 @@ export async function createSymptomEntry(input: {
     }
   });
 
-  revalidatePath('/');
+  revalidateDay();
   return { ok: true };
 }
 
@@ -91,6 +91,6 @@ export async function deleteSymptomEntry(
   if (deleted.length === 0) {
     return { ok: false, error: 'Eintrag nicht gefunden' };
   }
-  revalidatePath('/');
+  revalidateDay();
   return { ok: true };
 }

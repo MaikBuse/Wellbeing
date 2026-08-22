@@ -15,9 +15,15 @@ import {
   SCHEDULE_KIND_LABELS,
   WEEKDAY_LABELS,
 } from '@/lib/scales';
-import { todayLogDate } from '@/lib/time';
+import type { LogDate } from '@/lib/time';
 
-export function MedicationForm() {
+/**
+ * `today` comes in as a prop on purpose. It used to call `todayLogDate()` here,
+ * which reads the clock during a client render: it ignores the user's time zone
+ * and day-start hour, and across the 04:00 boundary the server and the client
+ * disagree, which is a hydration mismatch.
+ */
+export function MedicationForm({ today }: { today: LogDate }) {
   const router = useRouter();
   const [kind, setKind] = useState<
     'daily' | 'weekly' | 'interval_days' | 'as_needed'
@@ -124,7 +130,7 @@ export function MedicationForm() {
                 id="anchorDate"
                 name="anchorDate"
                 type="date"
-                defaultValue={todayLogDate()}
+                defaultValue={today}
               />
             </Field>
           </>

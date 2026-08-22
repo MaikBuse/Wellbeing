@@ -1,7 +1,6 @@
 'use server';
 
 import { and, eq } from 'drizzle-orm';
-import { revalidatePath } from 'next/cache';
 import { requireUserWithSettings } from '@/auth.helpers';
 import { db } from '@/db';
 import {
@@ -10,6 +9,7 @@ import {
   joints,
   menstrualEvents,
 } from '@/db/schema';
+import { revalidateDay } from '@/lib/revalidate';
 import {
   dailyLogSchema,
   menstrualEventSchema,
@@ -59,7 +59,7 @@ export async function saveDailyLogField(input: {
       set: { [field]: value, updatedAt: new Date() },
     });
 
-  revalidatePath('/');
+  revalidateDay();
   return { ok: true };
 }
 
@@ -119,7 +119,7 @@ export async function toggleJoint(input: {
     });
   }
 
-  revalidatePath('/');
+  revalidateDay();
   return { ok: true };
 }
 
@@ -141,6 +141,6 @@ export async function logMenstrualEvent(input: {
     })
     .onConflictDoNothing();
 
-  revalidatePath('/');
+  revalidateDay();
   return { ok: true };
 }

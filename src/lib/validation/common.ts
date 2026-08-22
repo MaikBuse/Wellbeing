@@ -45,6 +45,15 @@ export const logDate = z
   .string()
   .regex(/^\d{4}-\d{2}-\d{2}$/, 'Ungültiges Datum');
 
+/**
+ * A wall-clock time of day. Paired with a log date it is what a client may send
+ * about *when* something happened; the instant is built server-side, in the
+ * user's own zone, by src/lib/time.ts.
+ */
+export const timeOfDay = z
+  .string()
+  .regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'Ungültige Uhrzeit');
+
 export const uuid = z.string().uuid('Ungültige ID');
 
 /**

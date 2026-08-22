@@ -54,17 +54,29 @@ export const offProducts = pgTable(
 );
 
 /**
- * The per-user food with the effective values.
+ * The shared food library with the effective values.
  *
- * Foods are per-user and the OFF cache is shared: with one or two users the
- * duplication costs nothing and it removes the entire "whose tags win"
- * problem.
+ * Foods used to be per-user, on the theory that with one or two users the
+ * duplication cost nothing and it avoided the "whose tags win" question. In use
+ * that was simply wrong: whoever enters a food is not necessarily whoever eats
+ * it, and a library that is invisible to the other account is a library that
+ * gets typed twice.
+ *
+ * So a food is now global, like `off_product` above and like the `user_id IS
+ * NULL` rows in lookup.ts. `created_by_user_id` is provenance only — it is NOT a
+ * scope, and nothing may filter on it. The column was renamed from `user_id`
+ * precisely so that any leftover `eq(foods.userId, …)` fails to compile instead
+ * of silently returning nothing.
+ *
+ * What stays personal is the ranking: `frequentFoodsForSlot` counts the
+ * *caller's* meals. `use_count` and `last_used_at` are shared, which is what
+ * makes "Zuletzt benutzt" a household list.
  */
 export const foods = pgTable(
   'food',
   {
     id: pk(),
-    userId: uuid('user_id')
+    createdByUserId: uuid('created_by_user_id')
       .notNull()
       .references(() => appUsers.id, { onDelete: 'cascade' }),
     name: text('name').notNull(),
@@ -108,18 +120,19 @@ export const foods = pgTable(
     updatedAt: updatedAt(),
   },
   (t) => [
-    uniqueIndex('food_user_name_uq').on(
-      t.userId,
+    // Uniqueness is global now. Two accounts entering "Haferflocken" is one
+    // food, not two, and the analysis depends on that being true.
+    uniqueIndex('food_name_uq').on(
       sql`lower(${t.name})`,
       sql`coalesce(lower(${t.brand}), '')`
     ),
-    uniqueIndex('food_user_barcode_uq')
-      .on(t.userId, t.barcode)
+    uniqueIndex('food_barcode_uq')
+      .on(t.barcode)
       .where(sql`${t.barcode} is not null`),
     index('food_picker_idx')
-      .on(t.userId, t.lastUsedAt.desc())
+      .on(t.lastUsedAt.desc())
       .where(sql`${t.archivedAt} is null`),
-    index('food_name_lower_idx').on(t.userId, sql`lower(${t.name})`),
+    index('food_name_lower_idx').on(sql`lower(${t.name})`),
   ]
 );
 

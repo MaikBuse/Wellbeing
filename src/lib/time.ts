@@ -23,6 +23,9 @@ export const DEFAULT_DAY_START_HOUR = 4;
 /** A calendar date without time, as 'YYYY-MM-DD'. */
 export type LogDate = string;
 
+/** A wall-clock time of day, as 'HH:MM'. */
+export type TimeOfDay = string;
+
 type WallParts = {
   year: number;
   month: number;
@@ -92,9 +95,10 @@ function wallToInstant(
   month: number,
   day: number,
   hour: number,
-  timeZone: string
+  timeZone: string,
+  minute = 0
 ): Date {
-  const naive = Date.UTC(year, month - 1, day, hour, 0, 0);
+  const naive = Date.UTC(year, month - 1, day, hour, minute, 0);
   let ts = naive - zoneOffsetMs(new Date(naive), timeZone);
   ts = naive - zoneOffsetMs(new Date(ts), timeZone);
   return new Date(ts);
@@ -152,6 +156,52 @@ export function logDateRange(
   return { from, to };
 }
 
+/**
+ * The instant for a wall-clock time *within* a logical day.
+ *
+ * This is the inverse of `toLogDate` and the only correct way to turn "the user
+ * says 13:30 on the day they are looking at" into a timestamptz. Because the
+ * logical day starts at `dayStartHour`, a time before that hour belongs to the
+ * FOLLOWING calendar date: 01:30 on the logical day 2026-08-21 is 2026-08-22
+ * 01:30 local. Getting this backwards would file a late-night entry a day early,
+ * which is precisely what the day boundary exists to prevent.
+ *
+ * Guaranteed: `toLogDate(instantForLogDateTime(d, t, ...), ...) === d`.
+ */
+export function instantForLogDateTime(
+  logDate: LogDate,
+  timeOfDay: TimeOfDay,
+  timeZone: string = DEFAULT_TIME_ZONE,
+  dayStartHour: number = DEFAULT_DAY_START_HOUR
+): Date {
+  const { hour, minute } = parseTimeOfDay(timeOfDay);
+  const shifted = hour < dayStartHour ? addDays(logDate, 1) : logDate;
+  const { year, month, day } = parseLogDate(shifted);
+  return wallToInstant(year, month, day, hour, timeZone, minute);
+}
+
+/** Parse 'HH:MM' into its fields. Throws on malformed input. */
+export function parseTimeOfDay(timeOfDay: TimeOfDay): {
+  hour: number;
+  minute: number;
+} {
+  const match = /^(\d{2}):(\d{2})$/.exec(timeOfDay);
+  if (!match) throw new Error('Invalid time of day');
+  const hour = Number(match[1]);
+  const minute = Number(match[2]);
+  if (hour > 23 || minute > 59) throw new Error('Invalid time of day');
+  return { hour, minute };
+}
+
+/** 'HH:MM' of an instant in `timeZone` — for pre-filling a time input. */
+export function timeOfDayOf(
+  instant: Date,
+  timeZone: string = DEFAULT_TIME_ZONE
+): TimeOfDay {
+  const p = wallParts(instant, timeZone);
+  return `${pad(p.hour)}:${pad(p.minute)}`;
+}
+
 /** Shift a log date by whole days. */
 export function addDays(logDate: LogDate, days: number): LogDate {
   const { year, month, day } = parseLogDate(logDate);
@@ -175,6 +225,22 @@ export function todayLogDate(
   now: Date = new Date()
 ): LogDate {
   return toLogDate(now, timeZone, dayStartHour);
+}
+
+/**
+ * True while the logical day still lags the calendar date, i.e. between
+ * midnight and `dayStartHour`.
+ *
+ * The 04:00 boundary is correct but invisible: at 01:00 on Saturday the app
+ * says "Heute · Freitag" and looks a day behind. Screens use this to say so out
+ * loud instead of leaving the user to guess.
+ */
+export function isBeforeDayBoundary(
+  timeZone: string = DEFAULT_TIME_ZONE,
+  dayStartHour: number = DEFAULT_DAY_START_HOUR,
+  now: Date = new Date()
+): boolean {
+  return toLogDate(now, timeZone, dayStartHour) !== toLogDate(now, timeZone, 0);
 }
 
 /** ISO weekday, 0 = Monday .. 6 = Sunday. Used by weekly medication schedules. */

@@ -15,7 +15,6 @@ import {
 } from '@/db/queries/medication';
 import { expandDueDoses } from '@/services/medication/schedule';
 import { Card, CardHeader, CardMeta, CardTitle } from '@/components/ui/card';
-import { Disclosure } from '@/components/ui/disclosure';
 import { SectionLabel } from '@/components/ui/section-label';
 import { SeverityBadge } from '@/components/ui/severity-badge';
 import { DailyLogForm } from '@/components/daily/daily-log-form';
@@ -23,7 +22,7 @@ import { DayHeader } from '@/components/day/day-header';
 import { DaySummary } from '@/components/day/day-summary';
 import { MealSlotSection } from '@/components/meal/meal-slot-section';
 import { DueDoses, type DueDoseView } from '@/components/medication/due-doses';
-import { ReactionSheet } from '@/components/symptom/reaction-sheet';
+import { ReactionDisclosure } from '@/components/symptom/reaction-disclosure';
 import { sumNutrients } from '@/lib/nutrition';
 import {
   MEAL_SLOT_ORDER,
@@ -32,15 +31,23 @@ import {
   type MealSlotKey,
   type OnsetLagKey,
 } from '@/lib/scales';
-import { todayLogDate, type LogDate } from '@/lib/time';
+import {
+  daysBetween,
+  isBeforeDayBoundary,
+  timeOfDayOf,
+  todayLogDate,
+  type LogDate,
+} from '@/lib/time';
 
 /**
  * The whole app is really this one screen. Everything else is secondary.
  */
 export async function DayView({ logDate }: { logDate: LogDate }) {
   const { user, settings } = await requireUserWithSettings();
-  const isToday =
-    logDate === todayLogDate(settings.timeZone, settings.dayStartHour);
+  const today = todayLogDate(settings.timeZone, settings.dayStartHour);
+  // Negative is in the past. Read once here so the header and everything that
+  // depends on "is this today" agree within a render.
+  const offsetDays = daysBetween(today, logDate);
 
   const [
     meals,
@@ -58,7 +65,7 @@ export async function DayView({ logDate }: { logDate: LogDate }) {
     allSymptomTypes(),
     das28Joints(),
     getStandaloneSymptoms(user.id, logDate),
-    recentFoods(user.id),
+    recentFoods(),
     activeSchedules(user.id, logDate),
     intakesForDay(user.id, logDate),
     asNeededMedications(user.id),
@@ -121,6 +128,15 @@ export async function DayView({ logDate }: { logDate: LogDate }) {
     meals.map((meal) => [meal.id, defaultLagSince(new Date(meal.occurredAt))])
   );
 
+  // Same reason: the client would format with the module default zone, not with
+  // this user's.
+  const mealTimes: Record<string, string> = Object.fromEntries(
+    meals.map((meal) => [
+      meal.id,
+      timeOfDayOf(new Date(meal.occurredAt), settings.timeZone),
+    ])
+  );
+
   const allItems = meals.flatMap((meal) => meal.items);
   const dayTotals = sumNutrients(
     allItems.map((item) => ({
@@ -137,7 +153,15 @@ export async function DayView({ logDate }: { logDate: LogDate }) {
 
   return (
     <main className="space-y-6 p-4">
-      <DayHeader logDate={logDate} isToday={isToday} />
+      <DayHeader
+        logDate={logDate}
+        offsetDays={offsetDays}
+        dayStartHour={settings.dayStartHour}
+        showBoundaryHint={
+          offsetDays === 0 &&
+          isBeforeDayBoundary(settings.timeZone, settings.dayStartHour)
+        }
+      />
 
       <DaySummary
         totals={dayTotals}
@@ -162,6 +186,7 @@ export async function DayView({ logDate }: { logDate: LogDate }) {
               recent={recent}
               symptomTypes={symptomTypes}
               defaultLags={defaultLags}
+              times={mealTimes}
               // Snacks and drinks stay collapsed until used: five expanded
               // slots would push the daily check far below the fold.
               compact={slot === 'snack' || slot === 'drink'}
@@ -238,9 +263,11 @@ export async function DayView({ logDate }: { logDate: LogDate }) {
           </ul>
         ) : null}
 
-        <Disclosure label="Beschwerden erfassen">
-          <ReactionSheet mealId={null} symptomTypes={symptomTypes} />
-        </Disclosure>
+        <ReactionDisclosure
+          label="Beschwerden erfassen"
+          mealId={null}
+          symptomTypes={symptomTypes}
+        />
       </Card>
     </main>
   );

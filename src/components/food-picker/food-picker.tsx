@@ -127,7 +127,12 @@ export function FoodPicker({
             {shown.map((food) => (
               <Chip
                 key={food.id}
-                disabled={pending && addingId === food.id}
+                // The whole row goes inert, not just the tapped chip: two taps
+                // in the same moment used to fire two writes at an empty slot
+                // and create two meals, which showed up as two separate times.
+                // The server also takes an advisory lock, but there is no reason
+                // to let the UI produce the race in the first place.
+                disabled={pending}
                 onClick={() => add(food)}
               >
                 {pending && addingId === food.id ? (

@@ -4,7 +4,12 @@
 # runs `node migrate.mjs`, the app container runs `node server.js`. That way
 # schema and code always ship together.
 FROM node:22-alpine AS base
-RUN apk add --no-cache libc6-compat
+# tzdata is not optional: the Helm chart sets TZ=Europe/Berlin on the app
+# container, and without the zone files musl cannot resolve it, so TZ silently
+# does nothing. Every day computation goes through Intl with an explicit zone
+# (ICU carries its own tz database), so this is harmless today — but the first
+# getHours() without a zone would be UTC in production and Berlin in dev.
+RUN apk add --no-cache libc6-compat tzdata
 
 FROM base AS deps
 WORKDIR /app

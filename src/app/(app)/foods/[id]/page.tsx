@@ -13,12 +13,9 @@ export default async function FoodDetailPage({
 }: {
   params: Promise<{ id: string }>;
 }) {
-  const user = await requireUser();
+  await requireUser();
   const { id } = await params;
-  const [detail, tags] = await Promise.all([
-    getFoodDetail(user.id, id),
-    allTagDefs(),
-  ]);
+  const [detail, tags] = await Promise.all([getFoodDetail(id), allTagDefs()]);
   if (!detail) notFound();
   const { food, portions } = detail;
 

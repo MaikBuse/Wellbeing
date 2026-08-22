@@ -22,7 +22,9 @@ export function Chip({
         'active:scale-[0.96]',
         selected
           ? 'animate-pop border-primary-strong bg-primary text-primary-fg'
-          : 'border-line bg-card text-fg hover:border-line-strong hover:bg-primary-tint',
+          : // border-line-strong, not border-line: a hairline border on the pale
+            // background makes a live chip read as a disabled one.
+            'border-line-strong bg-card text-fg hover:border-primary-strong hover:bg-primary-tint',
         'disabled:pointer-events-none disabled:opacity-50',
         className
       )}

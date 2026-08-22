@@ -1,17 +1,26 @@
 'use server';
 
 import { and, desc, eq, sql } from 'drizzle-orm';
-import { revalidatePath } from 'next/cache';
 import { requireUserWithSettings } from '@/auth.helpers';
 import { db } from '@/db';
 import { foodPortions, foodTags, foods, mealItems, meals } from '@/db/schema';
 import { nutrientsForGrams, resolveGrams } from '@/lib/nutrition';
-import { addDays, toLogDate, type LogDate } from '@/lib/time';
+import { revalidateDay } from '@/lib/revalidate';
+import { DEFAULT_MEAL_TIMES, type MealSlotKey } from '@/lib/scales';
+import {
+  addDays,
+  instantForLogDateTime,
+  toLogDate,
+  todayLogDate,
+  type LogDate,
+  type TimeOfDay,
+} from '@/lib/time';
 import {
   addMealItemSchema,
   copyMealSchema,
   createMealSchema,
   quickAddSchema,
+  setMealTimeSchema,
   updateMealItemSchema,
 } from '@/lib/validation/meal';
 
@@ -19,15 +28,17 @@ export type ActionResult = { ok: true } | { ok: false; error: string };
 
 async function resolveItemWrite(
   foodId: string,
-  userId: string,
   quantity: number,
   unit: 'g' | 'ml' | 'piece' | 'portion',
   portionId: string | null
 ) {
+  // The food library is shared, so there is no ownership to check here. What
+  // has to be scoped is the meal the item is attached to, and every caller
+  // does that.
   const [food] = await db
     .select()
     .from(foods)
-    .where(and(eq(foods.id, foodId), eq(foods.userId, userId)))
+    .where(eq(foods.id, foodId))
     .limit(1);
   if (!food) throw new Error('Lebensmittel nicht gefunden');
 
@@ -57,6 +68,55 @@ async function resolveItemWrite(
   return { grams, nutrients };
 }
 
+/**
+ * When a meal actually happened.
+ *
+ * The clock is only the right answer for today. Quick-add used to stamp
+ * `new Date()` unconditionally *and* derive the log date from it, so anything
+ * entered while looking at another day silently landed on today — the day being
+ * viewed was used for the lookup but never for the write. Building the instant
+ * from the viewed day fixes both halves at once: the stored log date is still
+ * derived from the instant (clients never send a day assignment), and it now
+ * equals the requested day by construction.
+ */
+function resolveOccurredAt(
+  logDate: LogDate,
+  slot: MealSlotKey,
+  settings: { timeZone: string; dayStartHour: number }
+): Date {
+  const now = new Date();
+  if (logDate === todayLogDate(settings.timeZone, settings.dayStartHour, now)) {
+    return now;
+  }
+  return instantForLogDateTime(
+    logDate,
+    DEFAULT_MEAL_TIMES[slot],
+    settings.timeZone,
+    settings.dayStartHour
+  );
+}
+
+/**
+ * Serialises the read-then-insert that decides whether a slot already has a
+ * meal.
+ *
+ * There is deliberately no unique index on (user, log_date, slot) — a second
+ * breakfast and a split dinner are real. That leaves the lookup in quickAddFood
+ * unprotected under READ COMMITTED: two taps in the same moment both see an
+ * empty slot and both create a meal, which shows up as one time group per tap.
+ * An advisory lock is the cheapest fix that does not forbid the legitimate case.
+ */
+async function lockSlot(
+  tx: typeof db,
+  userId: string,
+  logDate: LogDate,
+  slot: string
+) {
+  await tx.execute(
+    sql`select pg_advisory_xact_lock(hashtext(${`${userId}|${logDate}|${slot}`}))`
+  );
+}
+
 /** Bumps the picker counters in the same transaction as the meal write. */
 async function touchFood(tx: typeof db, foodId: string) {
   await tx
@@ -69,6 +129,9 @@ export async function createMeal(formData: FormData): Promise<ActionResult> {
   const { user, settings } = await requireUserWithSettings();
   const parsed = createMealSchema.safeParse({
     slot: formData.get('slot'),
+    // The schema has always accepted this; not reading it meant an explicit
+    // time was silently replaced by "now".
+    occurredAt: formData.get('occurredAt') ?? undefined,
     note: formData.get('note') ?? '',
   });
   if (!parsed.success) return { ok: false, error: 'Eingabe unvollständig' };
@@ -82,7 +145,7 @@ export async function createMeal(formData: FormData): Promise<ActionResult> {
     note: parsed.data.note ?? null,
   });
 
-  revalidatePath('/');
+  revalidateDay();
   return { ok: true };
 }
 
@@ -92,7 +155,7 @@ export async function createMeal(formData: FormData): Promise<ActionResult> {
  * portion. Anything slower than this does not survive six months of daily use.
  */
 export async function quickAddFood(input: {
-  slot: 'breakfast' | 'lunch' | 'dinner' | 'snack' | 'drink';
+  slot: MealSlotKey;
   logDate: LogDate;
   foodId: string;
 }): Promise<ActionResult> {
@@ -103,6 +166,9 @@ export async function quickAddFood(input: {
 
   try {
     await db.transaction(async (tx) => {
+      const scoped = tx as unknown as typeof db;
+      await lockSlot(scoped, user.id, logDate, slot);
+
       const [existing] = await tx
         .select({ id: meals.id })
         .from(meals)
@@ -118,15 +184,17 @@ export async function quickAddFood(input: {
 
       let mealId = existing?.id;
       if (!mealId) {
-        const occurredAt = new Date();
+        const occurredAt = resolveOccurredAt(logDate, slot, settings);
         const [created] = await tx
           .insert(meals)
           .values({
             userId: user.id,
             slot,
             occurredAt,
-            // Derived server-side: the client never sends a log date, so a
-            // device with a wrong clock cannot poison the dataset.
+            // Still derived server-side: the client sends the day it is looking
+            // at and, at most, a wall-clock time — never a day assignment. The
+            // instant is built in the user's own zone, so this comes back out as
+            // the requested day.
             logDate: toLogDate(
               occurredAt,
               settings.timeZone,
@@ -147,7 +215,6 @@ export async function quickAddFood(input: {
 
       const { grams, nutrients } = await resolveItemWrite(
         foodId,
-        user.id,
         1,
         'portion',
         defaultPortion?.id ?? null
@@ -181,7 +248,7 @@ export async function quickAddFood(input: {
     };
   }
 
-  revalidatePath('/');
+  revalidateDay();
   return { ok: true };
 }
 
@@ -208,7 +275,6 @@ export async function addMealItem(formData: FormData): Promise<ActionResult> {
   try {
     const { grams, nutrients } = await resolveItemWrite(
       parsed.data.foodId,
-      user.id,
       parsed.data.quantity,
       parsed.data.unit,
       parsed.data.portionId ?? null
@@ -240,7 +306,7 @@ export async function addMealItem(formData: FormData): Promise<ActionResult> {
     };
   }
 
-  revalidatePath('/');
+  revalidateDay();
   return { ok: true };
 }
 
@@ -270,7 +336,6 @@ export async function updateMealItem(
 
   const { grams, nutrients } = await resolveItemWrite(
     item.foodId,
-    user.id,
     parsed.data.quantity,
     parsed.data.unit,
     parsed.data.portionId ?? null
@@ -288,7 +353,7 @@ export async function updateMealItem(
     })
     .where(eq(mealItems.id, parsed.data.mealItemId));
 
-  revalidatePath('/');
+  revalidateDay();
   return { ok: true };
 }
 
@@ -297,16 +362,77 @@ export async function deleteMealItem(
 ): Promise<ActionResult> {
   const { user } = await requireUserWithSettings();
   const [item] = await db
-    .select({ id: mealItems.id })
+    .select({ id: mealItems.id, mealId: mealItems.mealId })
     .from(mealItems)
     .innerJoin(meals, eq(meals.id, mealItems.mealId))
     .where(and(eq(mealItems.id, mealItemId), eq(meals.userId, user.id)))
     .limit(1);
   if (!item) return { ok: false, error: 'Eintrag nicht gefunden' };
 
-  await db.delete(mealItems).where(eq(mealItems.id, mealItemId));
-  revalidatePath('/');
+  await db.transaction(async (tx) => {
+    await tx.delete(mealItems).where(eq(mealItems.id, mealItemId));
+
+    // An emptied meal is not a meal. Left behind it still printed its time on
+    // the slot, and it stayed the row that later quick-adds attached to — so a
+    // deleted breakfast kept dictating the time of the next one. Reactions are
+    // kept: symptom_entry.meal_id is ON DELETE SET NULL, so they survive as
+    // meal-less entries rather than being lost.
+    const [{ remaining }] = await tx
+      .select({ remaining: sql<number>`count(*)::int` })
+      .from(mealItems)
+      .where(eq(mealItems.mealId, item.mealId));
+    if (remaining === 0) {
+      await tx.delete(meals).where(eq(meals.id, item.mealId));
+    }
+  });
+
+  revalidateDay();
   return { ok: true };
+}
+
+/**
+ * Corrects when a meal happened.
+ *
+ * The time is a wall-clock time on the day the meal is filed under, so a change
+ * across the day boundary genuinely moves the meal to the neighbouring day. The
+ * caller is told, because the entry then leaves the screen it was edited on.
+ */
+export async function setMealTime(input: {
+  mealId: string;
+  timeOfDay: TimeOfDay;
+}): Promise<{ ok: true; logDate: LogDate } | { ok: false; error: string }> {
+  const { user, settings } = await requireUserWithSettings();
+  const parsed = setMealTimeSchema.safeParse(input);
+  if (!parsed.success) {
+    return { ok: false, error: parsed.error.issues[0]?.message ?? 'Ungültig' };
+  }
+
+  const [meal] = await db
+    .select({ id: meals.id, logDate: meals.logDate })
+    .from(meals)
+    .where(and(eq(meals.id, parsed.data.mealId), eq(meals.userId, user.id)))
+    .limit(1);
+  if (!meal) return { ok: false, error: 'Mahlzeit nicht gefunden' };
+
+  const occurredAt = instantForLogDateTime(
+    meal.logDate,
+    parsed.data.timeOfDay,
+    settings.timeZone,
+    settings.dayStartHour
+  );
+  const logDate = toLogDate(
+    occurredAt,
+    settings.timeZone,
+    settings.dayStartHour
+  );
+
+  await db
+    .update(meals)
+    .set({ occurredAt, logDate })
+    .where(eq(meals.id, parsed.data.mealId));
+
+  revalidateDay();
+  return { ok: true, logDate };
 }
 
 export async function deleteMeal(mealId: string): Promise<ActionResult> {
@@ -318,7 +444,7 @@ export async function deleteMeal(mealId: string): Promise<ActionResult> {
   if (result.length === 0) {
     return { ok: false, error: 'Mahlzeit nicht gefunden' };
   }
-  revalidatePath('/');
+  revalidateDay();
   return { ok: true };
 }
 
@@ -361,7 +487,9 @@ export async function copyMealFromYesterday(input: {
   }
 
   await db.transaction(async (tx) => {
-    const occurredAt = new Date();
+    // Same rule as quick-add: "now" is only right for today. Copying Sunday's
+    // breakfast onto Saturday used to stamp it with the current time.
+    const occurredAt = resolveOccurredAt(targetLogDate, slot, settings);
     const [created] = await tx
       .insert(meals)
       .values({
@@ -381,7 +509,6 @@ export async function copyMealFromYesterday(input: {
     for (const [index, item] of sourceItems.entries()) {
       const { grams, nutrients } = await resolveItemWrite(
         item.foodId,
-        user.id,
         item.quantity,
         item.unit,
         item.portionId
@@ -400,7 +527,7 @@ export async function copyMealFromYesterday(input: {
     }
   });
 
-  revalidatePath('/');
+  revalidateDay();
   return { ok: true };
 }
 
@@ -424,7 +551,6 @@ export async function recomputeMealNutrients(
   for (const item of items) {
     const { grams, nutrients } = await resolveItemWrite(
       item.foodId,
-      user.id,
       item.quantity,
       item.unit,
       item.portionId
@@ -435,7 +561,7 @@ export async function recomputeMealNutrients(
       .where(eq(mealItems.id, item.id));
   }
 
-  revalidatePath('/');
+  revalidateDay();
   return { ok: true };
 }
 

@@ -6,17 +6,15 @@ import { toast } from 'sonner';
 import {
   copyMealFromYesterday,
   deleteMealItem,
+  setMealTime,
   updateMealItem,
 } from '@/actions/meals';
 import { Button } from '@/components/ui/button';
-import { Disclosure } from '@/components/ui/disclosure';
 import { Input } from '@/components/ui/field';
 import { SeverityBadge } from '@/components/ui/severity-badge';
 import { FoodPicker } from '@/components/food-picker/food-picker';
-import {
-  ReactionSheet,
-  type SymptomTypeOption,
-} from '@/components/symptom/reaction-sheet';
+import { ReactionDisclosure } from '@/components/symptom/reaction-disclosure';
+import type { SymptomTypeOption } from '@/components/symptom/reaction-sheet';
 import type { DayMeal } from '@/db/queries/day';
 import type { FoodListItem } from '@/db/queries/foods';
 import { formatGermanNumber, formatKcal, sumNutrients } from '@/lib/nutrition';
@@ -26,7 +24,6 @@ import {
   type MealSlotKey,
   type OnsetLagKey,
 } from '@/lib/scales';
-import { formatTime } from '@/lib/time';
 import { cn } from '@/lib/utils';
 
 /**
@@ -49,6 +46,7 @@ export function MealSlotSection({
   recent,
   symptomTypes,
   defaultLags,
+  times,
   index = 0,
   compact = false,
   showEmptyHint = false,
@@ -62,6 +60,9 @@ export function MealSlotSection({
   symptomTypes: SymptomTypeOption[];
   /** Per meal, the lag bucket implied by the time since it was eaten. */
   defaultLags: Record<string, OnsetLagKey>;
+  /** Per meal, its 'HH:MM' in the user's zone. Formatted on the server, because
+   * formatTime on the client would fall back to the module default zone. */
+  times: Record<string, string>;
   /** Position on the rail, used only for the entrance stagger. */
   index?: number;
   /** Stay collapsed while empty — used for snacks and drinks. */
@@ -89,8 +90,7 @@ export function MealSlotSection({
   const filled = items.length > 0;
   // Several meals in one slot each keep their own time; a single meal shows its
   // time on the slot heading instead of on a sub-heading of its own.
-  const singleTime =
-    meals.length === 1 ? formatTime(new Date(meals[0].occurredAt)) : null;
+  const singleMeal = meals.length === 1 ? meals[0] : null;
 
   function copyYesterday() {
     startTransition(async () => {
@@ -133,8 +133,15 @@ export function MealSlotSection({
             <h2 className="text-section font-semibold text-fg">
               {MEAL_SLOT_LABELS[slot]}
             </h2>
-            <div className="flex shrink-0 items-baseline gap-2 text-xs text-muted">
-              {singleTime ? <span className="num">{singleTime}</span> : null}
+            <div className="flex shrink-0 items-center gap-2 text-xs text-muted">
+              {singleMeal ? (
+                <MealTime
+                  mealId={singleMeal.id}
+                  logDate={logDate}
+                  time={times[singleMeal.id] ?? ''}
+                  readOnly={readOnly}
+                />
+              ) : null}
               {filled ? (
                 <span className="num font-medium text-fg">
                   {formatKcal(totals.kcal)}
@@ -162,8 +169,13 @@ export function MealSlotSection({
           {meals.map((meal) => (
             <div key={meal.id} className="mt-2 space-y-2">
               {meals.length > 1 ? (
-                <p className="num text-xs text-muted">
-                  {formatTime(new Date(meal.occurredAt))}
+                <p className="text-xs text-muted">
+                  <MealTime
+                    mealId={meal.id}
+                    logDate={logDate}
+                    time={times[meal.id] ?? ''}
+                    readOnly={readOnly}
+                  />
                 </p>
               ) : null}
 
@@ -206,13 +218,12 @@ export function MealSlotSection({
               ) : null}
 
               {!readOnly && meal.items.length > 0 ? (
-                <Disclosure label="Reaktion erfassen">
-                  <ReactionSheet
-                    mealId={meal.id}
-                    defaultLag={defaultLags[meal.id] ?? null}
-                    symptomTypes={symptomTypes}
-                  />
-                </Disclosure>
+                <ReactionDisclosure
+                  label="Reaktion erfassen"
+                  mealId={meal.id}
+                  defaultLag={defaultLags[meal.id] ?? null}
+                  symptomTypes={symptomTypes}
+                />
               ) : null}
             </div>
           ))}
@@ -233,6 +244,84 @@ export function MealSlotSection({
         </>
       )}
     </li>
+  );
+}
+
+/**
+ * The meal's time, and the way to correct it.
+ *
+ * Quick-add can only ever guess: the clock for today, a typical hour for any
+ * other day. The guess is therefore always one tap away from being fixed, right
+ * where it is displayed — this used to be a plain label with no way to change it
+ * at all.
+ */
+function MealTime({
+  mealId,
+  logDate,
+  time,
+  readOnly,
+}: {
+  mealId: string;
+  logDate: string;
+  time: string;
+  readOnly: boolean;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [value, setValue] = useState(time);
+  const [pending, startTransition] = useTransition();
+
+  function save() {
+    startTransition(async () => {
+      const result = await setMealTime({ mealId, timeOfDay: value });
+      if (!result.ok) {
+        toast.error(result.error);
+        return;
+      }
+      setEditing(false);
+      // Crossing the day boundary moves the meal off this screen, so say so
+      // rather than letting it seem to vanish.
+      toast.success(
+        result.logDate === logDate
+          ? 'Uhrzeit geändert'
+          : 'Uhrzeit geändert – die Mahlzeit liegt jetzt auf einem anderen Tag'
+      );
+    });
+  }
+
+  if (readOnly) return <span className="num">{time}</span>;
+
+  if (!editing) {
+    return (
+      <Button
+        variant="ghost"
+        size="sm"
+        // min-h-11 keeps the 44px floor: in a filled slot this is the only tap
+        // target in its row, so size="sm" alone would be too small.
+        className="num min-h-11 text-xs text-muted"
+        onClick={() => {
+          setValue(time);
+          setEditing(true);
+        }}
+        aria-label={`Uhrzeit ${time} ändern`}
+      >
+        {time}
+      </Button>
+    );
+  }
+
+  return (
+    <span className="inline-flex items-center gap-1">
+      <Input
+        type="time"
+        value={value}
+        onChange={(event) => setValue(event.target.value)}
+        className="w-32"
+        aria-label="Uhrzeit"
+      />
+      <Button size="sm" onClick={save} disabled={pending}>
+        OK
+      </Button>
+    </span>
   );
 }
 

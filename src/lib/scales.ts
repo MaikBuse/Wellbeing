@@ -136,6 +136,23 @@ export const MEAL_SLOT_LABELS = {
 
 export type MealSlotKey = keyof typeof MEAL_SLOT_LABELS;
 
+/**
+ * Fallback time for a meal on a day that is not today.
+ *
+ * Quick-add used to stamp `new Date()` unconditionally, so nine breakfasts
+ * entered on Sunday evening all claimed to have happened at 20:47. A typical
+ * hour for the slot is a guess, but it is an honest one and it is a guess the
+ * user can correct with one tap. For today, the clock is still the better
+ * default.
+ */
+export const DEFAULT_MEAL_TIMES: Record<MealSlotKey, string> = {
+  breakfast: '08:00',
+  lunch: '12:30',
+  dinner: '19:00',
+  snack: '15:00',
+  drink: '10:00',
+};
+
 export const MEAL_SLOT_ORDER: MealSlotKey[] = [
   'breakfast',
   'lunch',

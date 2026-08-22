@@ -33,6 +33,10 @@ const listColumns = {
  * "Häufig" for a slot. Ranked by usage WITHIN that slot, so after two weeks the
  * first three chips on the breakfast card are her actual breakfast — which is
  * what gets a known meal down to three taps.
+ *
+ * The library is shared but this ranking is not: it counts `userId`'s own meals,
+ * which is the whole point of a per-slot order. Everything else in this file
+ * reads the shared library and takes no user at all.
  */
 export async function frequentFoodsForSlot(
   userId: string,
@@ -54,22 +58,20 @@ export async function frequentFoodsForSlot(
     .select(listColumns)
     .from(foods)
     .innerJoin(uses, eq(uses.foodId, foods.id))
-    .where(and(eq(foods.userId, userId), isNull(foods.archivedAt)))
+    .where(isNull(foods.archivedAt))
     .orderBy(desc(uses.uses), desc(foods.lastUsedAt))
     .limit(limit);
 
   return rows;
 }
 
-/** "Zuletzt" — falls back to filling the picker on a fresh account. */
-export async function recentFoods(
-  userId: string,
-  limit = 12
-): Promise<FoodListItem[]> {
+/** "Zuletzt benutzt" across the shared library — fills the picker on a fresh
+ * account, and shows what the other account entered today. */
+export async function recentFoods(limit = 12): Promise<FoodListItem[]> {
   return db
     .select(listColumns)
     .from(foods)
-    .where(and(eq(foods.userId, userId), isNull(foods.archivedAt)))
+    .where(isNull(foods.archivedAt))
     .orderBy(desc(foods.lastUsedAt), desc(foods.createdAt))
     .limit(limit);
 }
@@ -81,7 +83,6 @@ export async function recentFoods(
  * superuser on purpose).
  */
 export async function searchFoods(
-  userId: string,
   query: string,
   limit = 25
 ): Promise<FoodListItem[]> {
@@ -91,7 +92,6 @@ export async function searchFoods(
     .from(foods)
     .where(
       and(
-        eq(foods.userId, userId),
         isNull(foods.archivedAt),
         or(ilike(foods.name, term), ilike(foods.brand, term))
       )
@@ -100,20 +100,20 @@ export async function searchFoods(
     .limit(limit);
 }
 
-export async function findFoodByBarcode(userId: string, barcode: string) {
+export async function findFoodByBarcode(barcode: string) {
   const [row] = await db
     .select()
     .from(foods)
-    .where(and(eq(foods.userId, userId), eq(foods.barcode, barcode)))
+    .where(eq(foods.barcode, barcode))
     .limit(1);
   return row ?? null;
 }
 
-export async function getFoodDetail(userId: string, foodId: string) {
+export async function getFoodDetail(foodId: string) {
   const [food] = await db
     .select()
     .from(foods)
-    .where(and(eq(foods.id, foodId), eq(foods.userId, userId)))
+    .where(eq(foods.id, foodId))
     .limit(1);
   if (!food) return null;
 

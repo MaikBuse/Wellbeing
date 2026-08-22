@@ -16,13 +16,11 @@ export default async function FoodsPage({
 }: {
   searchParams: Promise<{ q?: string }>;
 }) {
-  const user = await requireUser();
+  await requireUser();
   const { q } = await searchParams;
   const query = q?.trim() ?? '';
   const foods =
-    query.length >= 2
-      ? await searchFoods(user.id, query, 50)
-      : await recentFoods(user.id, 50);
+    query.length >= 2 ? await searchFoods(query, 50) : await recentFoods(50);
 
   return (
     <main className="space-y-4 p-4">

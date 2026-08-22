@@ -2,7 +2,10 @@ import { describe, expect, it } from 'vitest';
 import {
   addDays,
   daysBetween,
+  instantForLogDateTime,
+  isBeforeDayBoundary,
   logDateRange,
+  timeOfDayOf,
   toLogDate,
   weekdayOf,
 } from '../time';
@@ -103,5 +106,105 @@ describe('calendar helpers', () => {
     expect(weekdayOf('2026-08-24')).toBe(0); // Monday
     expect(weekdayOf('2026-08-22')).toBe(5); // Saturday
     expect(weekdayOf('2026-08-23')).toBe(6); // Sunday
+  });
+});
+
+describe('instantForLogDateTime', () => {
+  it('resolves an ordinary afternoon on the same calendar date', () => {
+    // 13:30 local on 2026-08-22 (CEST, UTC+2) => 11:30Z
+    expect(
+      instantForLogDateTime('2026-08-22', '13:30', TZ, 4).toISOString()
+    ).toBe('2026-08-22T11:30:00.000Z');
+  });
+
+  it('puts a time before the day boundary on the NEXT calendar date', () => {
+    // 01:30 on the logical day 2026-08-21 is 2026-08-22 01:30 local = 23:30Z.
+    expect(
+      instantForLogDateTime('2026-08-21', '01:30', TZ, 4).toISOString()
+    ).toBe('2026-08-21T23:30:00.000Z');
+  });
+
+  it('keeps the boundary hour itself on its own calendar date', () => {
+    expect(
+      instantForLogDateTime('2026-08-22', '04:00', TZ, 4).toISOString()
+    ).toBe('2026-08-22T02:00:00.000Z');
+    expect(
+      instantForLogDateTime('2026-08-22', '03:59', TZ, 4).toISOString()
+    ).toBe('2026-08-23T01:59:00.000Z');
+  });
+
+  it('uses the winter offset in winter', () => {
+    // CET is UTC+1.
+    expect(
+      instantForLogDateTime('2026-01-15', '13:30', TZ, 4).toISOString()
+    ).toBe('2026-01-15T12:30:00.000Z');
+  });
+
+  it('round-trips back to its log date, DST days included', () => {
+    for (const logDate of [
+      '2026-03-28',
+      '2026-03-29',
+      '2026-10-24',
+      '2026-10-25',
+    ]) {
+      for (let hour = 0; hour < 24; hour += 1) {
+        for (const minute of ['00', '30']) {
+          const time = `${String(hour).padStart(2, '0')}:${minute}`;
+          const instant = instantForLogDateTime(logDate, time, TZ, 4);
+          expect(toLogDate(instant, TZ, 4)).toBe(logDate);
+        }
+      }
+    }
+  });
+
+  it('lands inside the range the same log date covers', () => {
+    const logDate = '2026-10-24'; // the 25 hour day
+    const { from, to } = logDateRange(logDate, TZ, 4);
+    const instant = instantForLogDateTime(logDate, '02:15', TZ, 4);
+    expect(instant.getTime()).toBeGreaterThanOrEqual(from.getTime());
+    expect(instant.getTime()).toBeLessThan(to.getTime());
+  });
+
+  it('rejects a malformed time', () => {
+    expect(() => instantForLogDateTime('2026-08-22', '9:00', TZ, 4)).toThrow();
+    expect(() => instantForLogDateTime('2026-08-22', '24:00', TZ, 4)).toThrow();
+    expect(() => instantForLogDateTime('2026-08-22', '12:60', TZ, 4)).toThrow();
+  });
+});
+
+describe('timeOfDayOf', () => {
+  it('reads back the wall-clock time it was built from', () => {
+    for (const time of ['00:15', '04:00', '13:30', '23:59']) {
+      const instant = instantForLogDateTime('2026-08-22', time, TZ, 4);
+      expect(timeOfDayOf(instant, TZ)).toBe(time);
+    }
+  });
+
+  it('reports midnight as 00:00, not 24:00', () => {
+    expect(timeOfDayOf(new Date('2026-08-21T22:00:00Z'), TZ)).toBe('00:00');
+  });
+});
+
+describe('isBeforeDayBoundary', () => {
+  it('is true between midnight and the boundary hour', () => {
+    // 01:00 local on Saturday 2026-08-22 => still the Friday log date.
+    const night = new Date('2026-08-21T23:00:00Z');
+    expect(isBeforeDayBoundary(TZ, 4, night)).toBe(true);
+    expect(toLogDate(night, TZ, 4)).toBe('2026-08-21');
+  });
+
+  it('is false the rest of the day', () => {
+    expect(isBeforeDayBoundary(TZ, 4, new Date('2026-08-22T02:00:00Z'))).toBe(
+      false
+    );
+    expect(isBeforeDayBoundary(TZ, 4, new Date('2026-08-22T21:30:00Z'))).toBe(
+      false
+    );
+  });
+
+  it('is never true with a day start of midnight', () => {
+    expect(isBeforeDayBoundary(TZ, 0, new Date('2026-08-21T23:00:00Z'))).toBe(
+      false
+    );
   });
 });

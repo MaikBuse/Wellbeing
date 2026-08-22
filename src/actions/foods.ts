@@ -1,7 +1,6 @@
 'use server';
 
-import { and, eq, isNull, sql } from 'drizzle-orm';
-import { revalidatePath } from 'next/cache';
+import { and, eq, inArray, isNull, or, sql } from 'drizzle-orm';
 import { requireUserForAction } from '@/auth.helpers';
 import { db } from '@/db';
 import {
@@ -18,6 +17,7 @@ import {
   type OffProductData,
 } from '@/lib/off';
 import { searchFoods } from '@/db/queries/foods';
+import { revalidateFoods } from '@/lib/revalidate';
 import {
   deriveTags,
   tagInputFromName,
@@ -64,10 +64,33 @@ async function applyDerivedTags(
     .onConflictDoNothing();
 }
 
+/**
+ * Tag definitions are still per-user (`user_id IS NULL` = global, see
+ * lookup.ts), so a tag id arriving from a form has to be one this account is
+ * allowed to use. Without this, another account's private tag could be attached
+ * to a food in the shared library.
+ */
+async function assertTagsAllowed(
+  userId: string,
+  tagIds: string[]
+): Promise<boolean> {
+  if (tagIds.length === 0) return true;
+  const allowed = await db
+    .select({ id: foodTagDefs.id })
+    .from(foodTagDefs)
+    .where(
+      and(
+        inArray(foodTagDefs.id, tagIds),
+        or(isNull(foodTagDefs.userId), eq(foodTagDefs.userId, userId))
+      )
+    );
+  return allowed.length === new Set(tagIds).size;
+}
+
 export async function searchFoodsAction(query: string) {
-  const user = await requireUserForAction();
+  await requireUserForAction();
   if (query.trim().length < 2) return [];
-  return searchFoods(user.id, query);
+  return searchFoods(query);
 }
 
 /**
@@ -83,7 +106,7 @@ export async function lookupBarcode(
   | { kind: 'not_found' }
   | { kind: 'error'; message: string }
 > {
-  const user = await requireUserForAction();
+  await requireUserForAction();
   const parsed = barcodeSchema.safeParse({ barcode });
   if (!parsed.success) {
     return { kind: 'error', message: 'Ungültiger Barcode' };
@@ -93,7 +116,7 @@ export async function lookupBarcode(
   const [own] = await db
     .select({ id: foods.id, name: foods.name })
     .from(foods)
-    .where(and(eq(foods.userId, user.id), eq(foods.barcode, code)))
+    .where(eq(foods.barcode, code))
     .limit(1);
   if (own) return { kind: 'existing', foodId: own.id, name: own.name };
 
@@ -201,7 +224,7 @@ export async function createFoodFromOff(
   const [food] = await db
     .insert(foods)
     .values({
-      userId: user.id,
+      createdByUserId: user.id,
       name: p.productName ?? `Produkt ${p.barcode}`,
       brand: p.brands,
       source: 'off',
@@ -231,7 +254,7 @@ export async function createFoodFromOff(
   const rules = await loadRules();
   await applyDerivedTags(food.id, deriveTags(tagInputFromOff(p), rules));
 
-  revalidatePath('/foods');
+  revalidateFoods();
   return { ok: true, foodId: food.id };
 }
 
@@ -266,7 +289,7 @@ export async function createFood(
     const [food] = await db
       .insert(foods)
       .values({
-        userId: user.id,
+        createdByUserId: user.id,
         name: input.name,
         brand: input.brand ?? null,
         source: 'manual',
@@ -285,6 +308,9 @@ export async function createFood(
       .returning({ id: foods.id });
 
     if (input.tagIds && input.tagIds.length > 0) {
+      if (!(await assertTagsAllowed(user.id, input.tagIds))) {
+        return { ok: false, error: 'Unbekannte Kennzeichnung' };
+      }
       await db.insert(foodTags).values(
         input.tagIds.map((tagId) => ({
           foodId: food.id,
@@ -303,11 +329,11 @@ export async function createFood(
       );
     }
 
-    revalidatePath('/foods');
+    revalidateFoods();
     return { ok: true, foodId: food.id };
   } catch (error) {
     const message = String(error);
-    if (message.includes('food_user_name_uq')) {
+    if (message.includes('food_name_uq')) {
       return { ok: false, error: 'Dieses Lebensmittel gibt es schon' };
     }
     return { ok: false, error: 'Speichern fehlgeschlagen' };
@@ -326,10 +352,16 @@ export async function updateFoodTags(input: {
   const parsed = updateFoodTagsSchema.safeParse(input);
   if (!parsed.success) return { ok: false, error: 'Eingabe ungültig' };
 
+  if (!(await assertTagsAllowed(user.id, parsed.data.tagIds))) {
+    return { ok: false, error: 'Unbekannte Kennzeichnung' };
+  }
+
+  // Existence, not ownership: the library is shared, so anyone signed in may
+  // correct a food's tags. That is the point of sharing it.
   const [food] = await db
     .select({ id: foods.id })
     .from(foods)
-    .where(and(eq(foods.id, parsed.data.foodId), eq(foods.userId, user.id)))
+    .where(eq(foods.id, parsed.data.foodId))
     .limit(1);
   if (!food) return { ok: false, error: 'Lebensmittel nicht gefunden' };
 
@@ -347,8 +379,7 @@ export async function updateFoodTags(input: {
     }
   });
 
-  revalidatePath('/foods');
-  revalidatePath('/');
+  revalidateFoods();
   return { ok: true };
 }
 
@@ -369,11 +400,11 @@ export async function overrideFoodNutrient(input: {
     | 'defaultPortionGrams';
   value: number | null;
 }): Promise<ActionResult> {
-  const user = await requireUserForAction();
+  await requireUserForAction();
   const [food] = await db
     .select({ id: foods.id })
     .from(foods)
-    .where(and(eq(foods.id, input.foodId), eq(foods.userId, user.id)))
+    .where(eq(foods.id, input.foodId))
     .limit(1);
   if (!food) return { ok: false, error: 'Lebensmittel nicht gefunden' };
 
@@ -388,7 +419,7 @@ export async function overrideFoodNutrient(input: {
     })
     .where(eq(foods.id, input.foodId));
 
-  revalidatePath('/foods');
+  revalidateFoods();
   return { ok: true };
 }
 

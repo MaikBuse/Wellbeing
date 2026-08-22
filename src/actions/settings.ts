@@ -1,9 +1,9 @@
 'use server';
 
-import { revalidatePath } from 'next/cache';
 import { requireUserForAction } from '@/auth.helpers';
 import { db } from '@/db';
 import { userSettings } from '@/db/schema';
+import { revalidateSettings } from '@/lib/revalidate';
 import { updateSettingsSchema } from '@/lib/validation/settings';
 import type { ActionResult } from './meals';
 
@@ -38,9 +38,8 @@ export async function setTrackWeight(input: {
       set: { trackWeight: parsed.data.trackWeight, updatedAt: new Date() },
     });
 
-  // The weight field lives on the day screen, so that is what has to re-render.
-  revalidatePath('/');
-  revalidatePath('/settings');
+  // The weight field lives on the day screen, so that has to re-render too.
+  revalidateSettings();
 
   return { ok: true };
 }

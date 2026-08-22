@@ -1,7 +1,6 @@
 'use server';
 
 import { and, eq, sql } from 'drizzle-orm';
-import { revalidatePath } from 'next/cache';
 import { requireUserWithSettings } from '@/auth.helpers';
 import { db } from '@/db';
 import {
@@ -10,6 +9,7 @@ import {
   medicationSchedules,
   medications,
 } from '@/db/schema';
+import { revalidateMedications } from '@/lib/revalidate';
 import { toLogDate, todayLogDate } from '@/lib/time';
 import {
   changeDoseSchema,
@@ -23,7 +23,7 @@ import type { ActionResult } from './meals';
 export async function createMedication(
   formData: FormData
 ): Promise<ActionResult> {
-  const { user } = await requireUserWithSettings();
+  const { user, settings } = await requireUserWithSettings();
   const parsed = createMedicationSchema.safeParse({
     name: formData.get('name'),
     activeSubstance: formData.get('activeSubstance') ?? '',
@@ -45,6 +45,10 @@ export async function createMedication(
     };
   }
   const input = parsed.data;
+  // Every other write path derives the day from the user's settings; these two
+  // used to fall back to the module defaults, which is only invisible as long as
+  // nobody changes time_zone or day_start_hour.
+  const today = todayLogDate(settings.timeZone, settings.dayStartHour);
 
   await db.transaction(async (tx) => {
     const [medication] = await tx
@@ -55,7 +59,7 @@ export async function createMedication(
         activeSubstance: input.activeSubstance ?? null,
         form: input.form,
         category: input.category,
-        startedOn: todayLogDate(),
+        startedOn: today,
         isActive: true,
         note: input.note ?? null,
       })
@@ -69,7 +73,7 @@ export async function createMedication(
         weekday: input.weekday ?? null,
         intervalDays: input.intervalDays ?? null,
         anchorDate: input.anchorDate ? input.anchorDate : null,
-        validFrom: todayLogDate(),
+        validFrom: today,
       })
       .returning({ id: medicationSchedules.id });
 
@@ -81,8 +85,7 @@ export async function createMedication(
     });
   });
 
-  revalidatePath('/medications');
-  revalidatePath('/');
+  revalidateMedications();
   return { ok: true };
 }
 
@@ -155,8 +158,7 @@ export async function logIntake(input: {
       },
     });
 
-  revalidatePath('/');
-  revalidatePath('/medications');
+  revalidateMedications();
   return { ok: true };
 }
 
@@ -175,8 +177,7 @@ export async function clearIntake(input: {
         eq(medicationIntakes.plannedLogDate, input.plannedLogDate)
       )
     );
-  revalidatePath('/');
-  revalidatePath('/medications');
+  revalidateMedications();
   return { ok: true };
 }
 
@@ -221,8 +222,7 @@ export async function logAsNeeded(input: {
     note: parsed.data.note ?? null,
   });
 
-  revalidatePath('/');
-  revalidatePath('/medications');
+  revalidateMedications();
   return { ok: true };
 }
 
@@ -297,18 +297,19 @@ export async function changeDose(formData: FormData): Promise<ActionResult> {
     });
   });
 
-  revalidatePath('/medications');
-  revalidatePath('/');
+  revalidateMedications();
   return { ok: true };
 }
 
 export async function stopMedication(
   formData: FormData
 ): Promise<ActionResult> {
-  const { user } = await requireUserWithSettings();
+  const { user, settings } = await requireUserWithSettings();
   const parsed = stopMedicationSchema.safeParse({
     medicationId: formData.get('medicationId'),
-    endedOn: formData.get('endedOn') ?? todayLogDate(),
+    endedOn:
+      formData.get('endedOn') ??
+      todayLogDate(settings.timeZone, settings.dayStartHour),
   });
   if (!parsed.success) return { ok: false, error: 'Eingabe ungültig' };
 
@@ -337,7 +338,6 @@ export async function stopMedication(
       )
     );
 
-  revalidatePath('/medications');
-  revalidatePath('/');
+  revalidateMedications();
   return { ok: true };
 }

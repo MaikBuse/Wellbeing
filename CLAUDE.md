@@ -21,6 +21,14 @@ Routen englisch, UI-Texte deutsch. Keine i18n-Library.
 - **Jede Server Action beginnt mit `await requireUserForAction()`** und scopet
   jede Query auf `user.id`. Server Actions sind adressierbare POST-Endpunkte —
   das Layout schützt sie nicht. Keine Ausnahmen.
+- **Der Lebensmittel-Katalog ist geteilt, die Tagebuchdaten nicht.** `food`,
+  `food_portion`, `food_tag` und `off_product` gelten für alle Konten; `food`
+  trägt nur noch `created_by_user_id` als Herkunft. Auf dieser Spalte wird
+  **nie** gefiltert — sie heißt genau deshalb nicht mehr `user_id`, damit ein
+  vergessener Filter ein Typfehler ist. Alles mit `log_date` (`meal`,
+  `symptom_entry`, `daily_log`, `medication*`) bleibt strikt auf `user.id`
+  gescopet. Persönlich bleibt auch das Ranking: `frequentFoodsForSlot` zählt die
+  eigenen Mahlzeiten.
 - **Authentifizierung gehört nicht in `proxy.ts`.** Die Grenze ist
   `src/app/(app)/layout.tsx`.
 - **Niemals `drizzle-kit push`.** Nur `db:generate` und die erzeugte SQL-Datei
@@ -28,7 +36,16 @@ Routen englisch, UI-Texte deutsch. Keine i18n-Library.
   auseinanderlaufen.
 - **Tagesgrenzen nur über `src/lib/time.ts`.** Nie `occurred_at::date`, nie mit
   86 400 s rechnen (DST macht Tage 23 oder 25 Stunden lang). Clients senden nie
-  ein `log_date`.
+  ein `log_date` und rechnen nie selbst einen Tag aus — `todayLogDate()` in einer
+  `'use client'`-Komponente ignoriert die Nutzereinstellung und ist über die
+  04:00-Grenze ein Hydration-Mismatch. Eine vom Nutzer gewählte Uhrzeit wird
+  serverseitig mit `instantForLogDateTime(logDate, 'HH:MM', …)` zum Instant, und
+  das gespeicherte `log_date` kommt weiterhin aus `toLogDate` dieses Instants.
+- **Revalidierung nur über `src/lib/revalidate.ts`.** Kein `revalidatePath` in
+  einer Action. Die Pfadmengen sind dort einmal beschrieben, weil sie verstreut
+  auseinandergelaufen sind: neue Lebensmittel wurden auf `/foods` revalidiert,
+  aber nicht auf `/`, wo die Picker-Chips stehen. `refresh()` gehört nicht dazu —
+  es setzt das schwächere Signal und würde `revalidatePath` abschwächen.
 - **Nährwerte auf `meal_item` sind ein Snapshot** und werden nicht implizit neu
   berechnet. Kennzeichnungen (`food_tag`) sind es nicht und gelten rückwirkend.
   Diese Asymmetrie ist beabsichtigt.
@@ -46,6 +63,9 @@ Routen englisch, UI-Texte deutsch. Keine i18n-Library.
   Playwright-Traces.
 - **Kein Auth-Bypass im Produktionspfad.** `src/db/scripts/dev-session.ts`
   braucht das echte `AUTH_SECRET` und ist damit kein Bypass — dabei bleibt es.
+- **Commits gehen direkt auf `main`.** Ein-Personen-Projekt ohne Review: kein
+  Feature-Branch, kein PR, wenn ein Commit gewünscht ist. Committen nur auf
+  Aufforderung, pushen nur auf ausdrückliche Aufforderung.
 
 ## Vor dem Abschluss
 
@@ -74,3 +94,13 @@ Benjamini-Hochberg, und das Wort „signifikant“ kommt nicht vor. Vor dem Ausl
 gegen synthetische Datensätze mit bekanntem injiziertem Effekt **und** gegen
 Null-Datensätze testen: wenn die Pipeline in reinem Rauschen Signale findet,
 soll das Vitest zeigen und nicht die Ernährung.
+
+<!-- BEGIN:nextjs-agent-rules -->
+
+# This is NOT the Next.js you know
+
+This version has breaking changes — APIs, conventions, and file structure may all differ from your training data. Read the relevant guide in `node_modules/next/dist/docs/` (resolved from this file's directory; in monorepos the `next` package may not be visible from the repo root) before writing any code. Heed deprecation notices.
+
+This block is written and re-added by `next dev` — verify at `node_modules/next/dist/server/lib/generate-agent-files.js`. Removing it from a diff only re-creates the uncommitted change; committing it with your work keeps the tree clean.
+
+<!-- END:nextjs-agent-rules -->

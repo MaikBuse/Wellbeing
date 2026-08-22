@@ -6,7 +6,7 @@
  *
  * It writes test rows under a dedicated user and deletes them again.
  */
-import { and, eq, sql } from 'drizzle-orm';
+import { and, eq, isNull, sql } from 'drizzle-orm';
 import { db } from '@/db';
 import {
   appUsers,
@@ -67,7 +67,7 @@ console.log('\nfood library');
 const [food] = await db
   .insert(foods)
   .values({
-    userId: user.id,
+    createdByUserId: user.id,
     name: 'Testbrot',
     source: 'manual',
     kcal100: 250,
@@ -84,7 +84,7 @@ const foodId =
     await db
       .select({ id: foods.id })
       .from(foods)
-      .where(and(eq(foods.userId, user.id), eq(foods.name, 'Testbrot')))
+      .where(eq(foods.name, 'Testbrot'))
       .limit(1)
   )[0].id;
 
@@ -114,8 +114,61 @@ check('gluten tag attached', true);
 await expectReject('duplicate food name rejected', () =>
   db
     .insert(foods)
-    .values({ userId: user.id, name: 'testbrot', source: 'manual' })
+    .values({ createdByUserId: user.id, name: 'testbrot', source: 'manual' })
 );
+
+// --- The library is shared ------------------------------------------------
+// Foods used to be scoped to a user. They are global now, and the two things
+// that has to mean are: another account sees the row, and another account
+// cannot create a second copy of it under the same name.
+console.log('\nshared food library');
+const [otherUser] = await db
+  .insert(appUsers)
+  .values({
+    zitadelSub: 'integration-test-other',
+    email: 'other@example.invalid',
+    name: 'Test Zwei',
+  })
+  .onConflictDoUpdate({
+    target: appUsers.zitadelSub,
+    set: { name: 'Test Zwei' },
+  })
+  .returning({ id: appUsers.id });
+await db
+  .insert(userSettings)
+  .values({ userId: otherUser.id })
+  .onConflictDoNothing();
+
+// Exactly the query the food list runs: no user in it at all.
+const visible = await db
+  .select({ id: foods.id })
+  .from(foods)
+  .where(and(eq(foods.name, 'Testbrot'), isNull(foods.archivedAt)));
+check(
+  'a food created by one account is visible without any user filter',
+  visible.some((row) => row.id === foodId)
+);
+
+await expectReject('a second account cannot re-create the same food', () =>
+  db.insert(foods).values({
+    createdByUserId: otherUser.id,
+    name: 'Testbrot',
+    source: 'manual',
+  })
+);
+
+// Same name, different brand, is a different food — the index keys on both.
+const [branded] = await db
+  .insert(foods)
+  .values({
+    createdByUserId: otherUser.id,
+    name: 'Testbrot',
+    brand: 'Andere Marke',
+    source: 'manual',
+  })
+  .returning({ id: foods.id });
+check('the same name under a different brand is allowed', !!branded);
+await db.delete(foods).where(eq(foods.id, branded.id));
 
 // --- Meal at 23:30 local, symptom at 01:00 local ---------------------------
 console.log('\nlogical day boundary');
@@ -478,8 +531,9 @@ await db.delete(foodTagDefs).where(eq(foodTagDefs.id, ownTag.id));
 // ON DELETE RESTRICT so that deleting a food can never quietly erase history,
 // which means a user row cannot be removed while meals still reference foods.
 await db.delete(meals).where(eq(meals.userId, user.id));
+await db.delete(appUsers).where(eq(appUsers.id, otherUser.id));
 await db.delete(appUsers).where(eq(appUsers.id, user.id));
-console.log('\ntest user removed');
+console.log('\ntest users removed');
 
 console.log(
   failures === 0 ? 'ALL CHECKS PASSED' : `${failures} CHECK(S) FAILED`
