@@ -4,7 +4,9 @@ import {
   daysBetween,
   instantForLogDateTime,
   isBeforeDayBoundary,
+  eachLogDate,
   logDateRange,
+  MAX_RANGE_DAYS,
   timeOfDayOf,
   toLogDate,
   weekdayOf,
@@ -206,5 +208,68 @@ describe('isBeforeDayBoundary', () => {
     expect(isBeforeDayBoundary(TZ, 0, new Date('2026-08-21T23:00:00Z'))).toBe(
       false
     );
+  });
+});
+
+describe('eachLogDate', () => {
+  it('is inclusive at both ends', () => {
+    expect(eachLogDate('2026-08-20', '2026-08-22')).toEqual([
+      '2026-08-20',
+      '2026-08-21',
+      '2026-08-22',
+    ]);
+  });
+
+  it('returns a single day when from equals to', () => {
+    expect(eachLogDate('2026-08-22', '2026-08-22')).toEqual(['2026-08-22']);
+  });
+
+  it('is dense across a month and a year boundary', () => {
+    const across = eachLogDate('2026-12-30', '2027-01-02');
+    expect(across).toEqual([
+      '2026-12-30',
+      '2026-12-31',
+      '2027-01-01',
+      '2027-01-02',
+    ]);
+  });
+
+  it('is dense across both DST transitions', () => {
+    // The analysis rotates over this index, so a missing or duplicated day
+    // would silently shift every exposure against its outcome.
+    const spring = eachLogDate('2026-03-27', '2026-03-30');
+    expect(spring).toEqual([
+      '2026-03-27',
+      '2026-03-28',
+      '2026-03-29',
+      '2026-03-30',
+    ]);
+    const autumn = eachLogDate('2026-10-23', '2026-10-26');
+    expect(autumn).toEqual([
+      '2026-10-23',
+      '2026-10-24',
+      '2026-10-25',
+      '2026-10-26',
+    ]);
+  });
+
+  it('covers a leap day', () => {
+    const days = eachLogDate('2028-02-27', '2028-03-01');
+    expect(days).toContain('2028-02-29');
+    expect(days).toHaveLength(4);
+  });
+
+  it('agrees with daysBetween on its own length', () => {
+    const days = eachLogDate('2026-01-01', '2026-12-31');
+    expect(days).toHaveLength(daysBetween('2026-01-01', '2026-12-31') + 1);
+  });
+
+  it('rejects a reversed range rather than returning nothing', () => {
+    expect(() => eachLogDate('2026-08-22', '2026-08-20')).toThrow();
+  });
+
+  it('rejects a runaway range', () => {
+    expect(() => eachLogDate('2000-01-01', '2026-01-01')).toThrow();
+    expect(MAX_RANGE_DAYS).toBe(1830);
   });
 });

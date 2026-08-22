@@ -7,6 +7,7 @@ import { saveDailyLogField, toggleJoint } from '@/actions/dailyLog';
 import { Card, CardHeader, CardMeta, CardTitle } from '@/components/ui/card';
 import { Chip, ChipRow } from '@/components/ui/chip';
 import { Disclosure } from '@/components/ui/disclosure';
+import { CycleSection } from '@/components/daily/cycle-section';
 import { Field, Input, Textarea } from '@/components/ui/field';
 import { ProgressRing } from '@/components/ui/progress-ring';
 import { ScoreChips } from '@/components/ui/score-chips';
@@ -46,12 +47,16 @@ export function DailyLogForm({
   joints,
   selectedJoints,
   trackWeight,
+  trackCycle,
+  cycleEvents,
 }: {
   logDate: string;
   values: DailyLogValues;
   joints: JointOption[];
   selectedJoints: string[];
   trackWeight: boolean;
+  trackCycle: boolean;
+  cycleEvents: string[];
 }) {
   const [, startTransition] = useTransition();
   const [saved, setSaved] = useState<string | null>(null);
@@ -149,7 +154,18 @@ export function DailyLogForm({
           />
         </Field>
 
-        <Field label="Allgemeines Befinden" htmlFor="wellbeing">
+        {/* Relabelled from "Allgemeines Befinden". ScoreChips prints the
+            SEVERITY_ANCHORS — "keine" through "sehr stark" — so under the old
+            heading a 10 meant either "excellent" or "very severe" depending on
+            whether you read the label or the chips. She reads the chips, and the
+            two fields above use the same widget on the same worse-is-higher
+            scale, so the wording follows the chips. This is also what fixes the
+            sign of 15 % of the RA-Tageswert. */}
+        <Field
+          label="Beschwerden allgemein"
+          hint="Wie stark die Beschwerden insgesamt waren – höher heißt schlechter, wie in den Feldern darüber."
+          htmlFor="wellbeing"
+        >
           <ScoreChips
             name="wellbeing"
             value={values.wellbeing}
@@ -220,7 +236,7 @@ export function DailyLogForm({
           <div className="space-y-5">
             <Field
               label="Schlafdauer"
-              hint="Schlechter Schlaf treibt Schmerz und Essverhalten gleichzeitig – ohne diesen Wert sind Essens-Zusammenhänge unzuverlässig."
+              hint="Nacht auf diesen Tag. Schlechter Schlaf treibt Schmerz und Essverhalten gleichzeitig – ohne diesen Wert sind Essens-Zusammenhänge unzuverlässig."
             >
               <ChipRow>
                 {SLEEP_CHIPS.map((option) => (
@@ -312,6 +328,10 @@ export function DailyLogForm({
             ) : null}
           </div>
         </Disclosure>
+
+        {trackCycle ? (
+          <CycleSection logDate={logDate} recorded={cycleEvents} />
+        ) : null}
 
         <Disclosure label="Notiz zum Tag">
           <Field

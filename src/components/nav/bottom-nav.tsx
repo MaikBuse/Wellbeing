@@ -2,12 +2,32 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Apple, CalendarDays, Home, Pill, Settings } from 'lucide-react';
+import { Apple, Home, Pill, Settings, TrendingUp } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
-const ITEMS = [
+type NavItem = {
+  href: string;
+  label: string;
+  icon: typeof Home;
+  alsoMatches?: string[];
+};
+
+const ITEMS: NavItem[] = [
   { href: '/', label: 'Heute', icon: Home },
-  { href: '/day', label: 'Tage', icon: CalendarDays },
+  // Replaces the old "Tage" tab rather than adding a sixth: /day never had a
+  // list, only a redirect to yesterday, and the calendar heatmap inside the
+  // analysis IS that list — a better one, because it shows the data and not just
+  // the dates. Six targets in a max-w-lg column would also squeeze every one of
+  // them below comfortable thumb width.
+  {
+    href: '/analyse',
+    label: 'Analyse',
+    icon: TrendingUp,
+    // A dated day used to light up the "Tage" tab. The day list lives in the
+    // analysis now, so that is where it belongs — without this, /day/2026-08-21
+    // would match no tab at all and the indicator would simply vanish.
+    alsoMatches: ['/day'],
+  },
   { href: '/medications', label: 'Medis', icon: Pill },
   { href: '/foods', label: 'Essen', icon: Apple },
   { href: '/settings', label: 'Mehr', icon: Settings },
@@ -24,9 +44,11 @@ const ITEMS = [
 export function BottomNav() {
   const pathname = usePathname();
 
-  const activeIndex = ITEMS.findIndex((item) =>
-    item.href === '/' ? pathname === '/' : pathname.startsWith(item.href)
-  );
+  const activeIndex = ITEMS.findIndex((item) => {
+    if (item.href === '/') return pathname === '/';
+    if (pathname.startsWith(item.href)) return true;
+    return (item.alsoMatches ?? []).some((prefix) => pathname.startsWith(prefix));
+  });
 
   return (
     <nav

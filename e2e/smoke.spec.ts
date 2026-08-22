@@ -13,6 +13,22 @@ test('an unauthenticated visitor is sent to the sign-in page', async ({
   await expect(page.getByRole('button', { name: 'Anmelden' })).toBeVisible();
 });
 
+test('the analysis is behind the same auth boundary', async ({ page }) => {
+  // The analysis reads a whole history at once, so it is the last route that
+  // should ever be reachable without a session.
+  await page.goto('/analyse');
+  await expect(page).toHaveURL(/\/signin$/);
+});
+
+test('the export is behind the auth boundary too', async ({ request }) => {
+  // A route handler is not covered by the (app) layout, so it does its own
+  // check — and it hands out a full health-data series if it does not.
+  const response = await request.get('/analyse/export?format=csv', {
+    maxRedirects: 0,
+  });
+  expect(response.status()).not.toBe(200);
+});
+
 test('the health endpoint answers without a session or a database', async ({
   request,
 }) => {

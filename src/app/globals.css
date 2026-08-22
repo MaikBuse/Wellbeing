@@ -36,6 +36,57 @@
   --color-sev-4: #8e3b39;
 
   /*
+   * Chart marks.
+   *
+   * None of the five palette tones works as a chart mark: they are all light,
+   * and on --color-card every one of them sits under 3:1. So charts get their
+   * own darker slots, derived from the same hues, validated against #ffffff for
+   * the lightness band, the chroma floor, adjacent CVD separation (protanopia
+   * and deuteranopia at full severity) and contrast.
+   *
+   * The ORDER is the colourblind-safety mechanism, not decoration: it was
+   * chosen so that every adjacent pair clears the gate, and it must never be
+   * reordered or cycled. The worst adjacent pair sits at CVD dE 7.4, which is
+   * inside the warn band, so secondary encoding is mandatory — direct labels
+   * and the 2px surface gap, both of which the charts do anyway.
+   *
+   * Beyond six series the answer is never a seventh colour: fold the tail into
+   * "Sonstiges" or use small multiples.
+   */
+  --color-chart-1: #1f6f9e; /* blue, from --color-calm */
+  --color-chart-2: #c2621f; /* apricot, from --color-primary */
+  --color-chart-3: #8e3b39; /* rose, = --color-sev-4 */
+  --color-chart-4: #4a7f3a; /* green — the palette has none */
+  --color-chart-5: #7d5ba8; /* violet */
+  --color-chart-6: #a07a1f; /* ochre */
+
+  /*
+   * Sequential severity ramp, one hue, monotone lightness.
+   *
+   * The --color-sev-0..4 ramp above stays for badges and chips, where a number
+   * always sits beside it. It is unusable as a heatmap ramp: sev-1 is LIGHTER
+   * than sev-0, the lightness is not monotone and the hue jumps. This ramp is
+   * monotone with dL >= 0.06 per step and a light end that still clears 2:1.
+   *
+   * Zero is NOT part of the ramp — "no complaints" is neutral, not pale rose —
+   * and "not recorded" gets a dashed hairline with no fill at all, because an
+   * unlogged day must never look like a good one.
+   */
+  --color-ramp-1: #dfa3a1;
+  --color-ramp-2: #c6807e;
+  --color-ramp-3: #ac605e;
+  --color-ramp-4: #8e3b39;
+  --color-ramp-5: #6d2b2a;
+
+  /*
+   * Diverging pair, for the deviation from her own 7-day median. Warm and cool
+   * read as opposites; the midpoint is neutral grey so "no change" reads as
+   * nothing rather than as a third category.
+   */
+  --color-diverge-pos: #1f6f9e; /* better than her own median */
+  --color-diverge-neg: #8e3b39; /* worse */
+
+  /*
    * Interaction steps. Before these existed every hover in the app was
    * `opacity-90`, which washes the text out along with the background.
    * --color-primary-fg on --color-primary-hover is ~9:1, so the dark-on-apricot
@@ -424,4 +475,44 @@
   animation:
     210ms ease-in 150ms both vt-fade,
     400ms ease-in both vt-slide-y;
+}
+
+/* ---------------------------------------------------------------------------
+ * Print
+ *
+ * Only the report route is meant to be printed. The tab bar, the header and the
+ * filter row are navigation, and navigation on paper is just ink — so they go.
+ * Backgrounds go too: a pale tinted card costs toner and adds nothing, while the
+ * calendar cells DO carry meaning and are forced to keep their fill.
+ * ------------------------------------------------------------------------- */
+
+@media print {
+  [style*='site-header'],
+  nav[style*='site-nav'],
+  .print\:hidden {
+    display: none !important;
+  }
+
+  body {
+    background: #fff;
+    font-size: 11pt;
+  }
+
+  /* The severity ramp is data. Without this, browsers drop the fills and the
+   * calendar prints as an empty grid. */
+  [class*='bg-ramp-'],
+  [class*='bg-chart-'] {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  /* Never split a card across a page break mid-table. */
+  section,
+  table {
+    break-inside: avoid;
+  }
+
+  a[href]::after {
+    content: '';
+  }
 }

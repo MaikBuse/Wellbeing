@@ -218,6 +218,31 @@ export function daysBetween(a: LogDate, b: LogDate): number {
   return Math.round(ms / 86_400_000);
 }
 
+/**
+ * Guard against a runaway range. Five years of daily rows is far beyond any
+ * real use of this app, and an analysis range is user-influenced input.
+ */
+export const MAX_RANGE_DAYS = 1830;
+
+/**
+ * Every logical day from `from` to `to`, inclusive, contiguous.
+ *
+ * The analysis needs a dense calendar, not "the days that have rows": a
+ * rolling median over the last seven *days* is a different thing from a median
+ * over the last seven *entries*, and a rotation test needs a gapless index to
+ * rotate over. Built with `addDays` rather than `generate_series` for the same
+ * reason `log_date` is not a generated column — the day boundary is time-zone
+ * dependent and therefore lives here.
+ */
+export function eachLogDate(from: LogDate, to: LogDate): LogDate[] {
+  const span = daysBetween(from, to);
+  if (span < 0) throw new Error('Range ends before it starts');
+  if (span + 1 > MAX_RANGE_DAYS) throw new Error('Range too long');
+  const days: LogDate[] = [];
+  for (let i = 0; i <= span; i++) days.push(addDays(from, i));
+  return days;
+}
+
 /** The current logical day. */
 export function todayLogDate(
   timeZone: string = DEFAULT_TIME_ZONE,
@@ -241,6 +266,28 @@ export function isBeforeDayBoundary(
   now: Date = new Date()
 ): boolean {
   return toLogDate(now, timeZone, dayStartHour) !== toLogDate(now, timeZone, 0);
+}
+
+/**
+ * ISO week identifier, 'YYYY-Www'.
+ *
+ * Used to bucket analysis runs: the stability indicator counts consecutive
+ * WEEKS a factor stayed near the top, not consecutive runs, because ten runs on
+ * one afternoon would otherwise read as ten weeks of agreement.
+ */
+export function isoWeekKey(logDate: LogDate): string {
+  const { year, month, day } = parseLogDate(logDate);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  // ISO weeks belong to the year containing their Thursday.
+  const dayOfWeek = (date.getUTCDay() + 6) % 7;
+  date.setUTCDate(date.getUTCDate() - dayOfWeek + 3);
+  const isoYear = date.getUTCFullYear();
+  const firstThursday = new Date(Date.UTC(isoYear, 0, 4));
+  const firstDayOfWeek = (firstThursday.getUTCDay() + 6) % 7;
+  firstThursday.setUTCDate(firstThursday.getUTCDate() - firstDayOfWeek + 3);
+  const week =
+    1 + Math.round((date.getTime() - firstThursday.getTime()) / (7 * 86_400_000));
+  return `${isoYear}-W${pad(week)}`;
 }
 
 /** ISO weekday, 0 = Monday .. 6 = Sunday. Used by weekly medication schedules. */

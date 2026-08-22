@@ -68,6 +68,62 @@ export const STIFFNESS_CHIPS: ScaleOption[] = [
   { value: 180, label: 'über 2 Std' },
 ];
 
+/**
+ * Morning stiffness in minutes, mapped onto the 0-10 outcome scale.
+ *
+ * The chips ARE the data — she taps one of seven, so these anchors are the
+ * observed values and anything between them is interpolated linearly. A smooth
+ * transform (log1p and friends) would be arbitrary where the input is
+ * genuinely ordinal.
+ */
+export const STIFFNESS_TO_SCORE: readonly (readonly [number, number])[] = [
+  [0, 0],
+  [5, 2],
+  [15, 4],
+  [30, 6],
+  [60, 8],
+  [120, 9],
+  [180, 10],
+];
+
+/** Piecewise-linear lookup over STIFFNESS_TO_SCORE, clamped at both ends. */
+export function stiffnessToScore(minutes: number): number {
+  const points = STIFFNESS_TO_SCORE;
+  if (minutes <= points[0][0]) return points[0][1];
+  const last = points[points.length - 1];
+  if (minutes >= last[0]) return last[1];
+  for (let i = 1; i < points.length; i++) {
+    const [x1, y1] = points[i];
+    if (minutes <= x1) {
+      const [x0, y0] = points[i - 1];
+      return y0 + ((minutes - x0) / (x1 - x0)) * (y1 - y0);
+    }
+  }
+  return last[1];
+}
+
+/**
+ * The components of the RA-Tagesindex. Always shown beside the composite: one
+ * number is what you can rank, but only the breakdown says what drives it.
+ */
+export const RA_COMPONENT_LABELS = {
+  jointPain: 'Gelenkschmerz',
+  tenderJoints: 'Gelenke markiert',
+  stiffness: 'Morgensteifigkeit',
+  fatigue: 'Erschöpfung',
+  complaints: 'Beschwerden allgemein',
+} as const;
+
+export type RaComponent = keyof typeof RA_COMPONENT_LABELS;
+
+export const RA_COMPONENT_ORDER: RaComponent[] = [
+  'jointPain',
+  'tenderJoints',
+  'stiffness',
+  'fatigue',
+  'complaints',
+];
+
 export const SLEEP_CHIPS: ScaleOption[] = [
   { value: 240, label: '4 Std' },
   { value: 300, label: '5 Std' },
@@ -91,6 +147,28 @@ export const ONSET_LAG_LABELS = {
 } as const;
 
 export type OnsetLagKey = keyof typeof ONSET_LAG_LABELS;
+
+/**
+ * The lag buckets as explicit minute ranges, half-open `[from, to)`.
+ *
+ * `lagFromMinutes` above answers "which chip do we pre-select"; this answers
+ * "which symptoms fall in this tag's window". They are two spellings of the
+ * same fact and a test asserts they agree at every boundary — if they drift,
+ * the chip a person taps stops meaning what the analysis measures.
+ *
+ * `next_day` is open-ended on purpose: it is a day-level window and Model B
+ * never uses these bounds.
+ */
+export const ONSET_LAG_MINUTES: Record<
+  OnsetLagKey,
+  { fromMinutes: number; toMinutes: number | null }
+> = {
+  immediate: { fromMinutes: 0, toMinutes: 30 },
+  early: { fromMinutes: 30, toMinutes: 120 },
+  mid: { fromMinutes: 120, toMinutes: 360 },
+  late: { fromMinutes: 360, toMinutes: 720 },
+  next_day: { fromMinutes: 720, toMinutes: null },
+};
 
 export const ONSET_LAG_ORDER: OnsetLagKey[] = [
   'immediate',

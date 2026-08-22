@@ -9,8 +9,11 @@
 import { and, eq, isNull, sql } from 'drizzle-orm';
 import { db } from '@/db';
 import {
+  analysisRuns,
   appUsers,
   dailyLogs,
+  eliminationPhases,
+  eliminationProtocols,
   foodCatalog,
   foodTagDefs,
   foodTags,
@@ -21,6 +24,7 @@ import {
   medicationScheduleDoses,
   medicationSchedules,
   medications,
+  menstrualEvents,
   symptomEntries,
   symptomTypes,
   userSettings,
@@ -29,8 +33,27 @@ import { searchCatalog } from '@/db/queries/foods';
 import { seedLookups } from '@/db/seed/run';
 import { copyCatalogEntryToLibrary } from '@/services/food/fromCatalog';
 import { nutrientsForGrams, resolveGrams } from '@/lib/nutrition';
-import { toLogDate } from '@/lib/time';
+import { addDays, eachLogDate, toLogDate } from '@/lib/time';
 import { expandDueDoses } from '@/services/medication/schedule';
+import {
+  analysedTagDefs,
+  catalogState,
+  dailyLogRange,
+  intakeRange,
+  mealMeasuredRange,
+  mealRange,
+  mealTagExposureRange,
+  menstrualEventRange,
+  protocolDayIntervals,
+  scheduleVersionsRange,
+  symptomEntryRange,
+} from '@/db/queries/analysis';
+import { assembleFacts } from '@/services/analysis/facts';
+import { runAnalysisForUser } from '@/services/analysis/loader';
+import {
+  analysisParamsSchema,
+  analysisResultsSchema,
+} from '@/services/analysis/types';
 
 const TZ = 'Europe/Berlin';
 const START = 4;
@@ -665,6 +688,482 @@ if (firstPick.ok) {
 
   await db.delete(foodTags).where(eq(foodTags.foodId, firstPick.foodId));
   await db.delete(foods).where(eq(foods.id, firstPick.foodId));
+}
+
+// --- Analysis --------------------------------------------------------------
+//
+// Only what Postgres can actually prove: that the range queries return what the
+// pure pipeline expects, that a numeric column round-trips, and that the
+// null-versus-zero contract of the BLS measurements survives a real join. The
+// statistics themselves are Vitest's job and need no database.
+console.log('\nanalysis');
+
+{
+  const ANALYSIS_FROM = '2026-04-01';
+  const ANALYSIS_TO = '2026-04-20';
+  const analysisDays = eachLogDate(ANALYSIS_FROM, ANALYSIS_TO);
+
+  // Clear this section's own fixture first.
+  //
+  // The rest of the script cleans up at the end, which is fine until a run
+  // crashes halfway — then the next run inserts a second set of meals on top of
+  // the first and every count silently doubles. That failure mode already cost
+  // one debugging round, and the assertions here are exact counts, so the
+  // fixture is made idempotent rather than trusted to exit cleanly.
+  await db
+    .delete(mealItems)
+    .where(
+      sql`${mealItems.mealId} in (
+        select id from meal
+        where user_id = ${user.id}
+          and log_date between ${ANALYSIS_FROM} and ${ANALYSIS_TO}
+      )`
+    );
+  await db
+    .delete(meals)
+    .where(
+      and(
+        eq(meals.userId, user.id),
+        sql`${meals.logDate} between ${ANALYSIS_FROM} and ${ANALYSIS_TO}`
+      )
+    );
+  await db
+    .delete(symptomEntries)
+    .where(
+      and(
+        eq(symptomEntries.userId, user.id),
+        sql`${symptomEntries.logDate} between ${ANALYSIS_FROM} and ${addDays(ANALYSIS_TO, 1)}`
+      )
+    );
+  await db
+    .delete(dailyLogs)
+    .where(
+      and(
+        eq(dailyLogs.userId, user.id),
+        sql`${dailyLogs.logDate} between ${ANALYSIS_FROM} and ${ANALYSIS_TO}`
+      )
+    );
+  await db
+    .delete(eliminationProtocols)
+    .where(
+      and(
+        eq(eliminationProtocols.userId, user.id),
+        eq(eliminationProtocols.name, 'Analyse-Protokoll')
+      )
+    );
+  await db.delete(menstrualEvents).where(eq(menstrualEvents.userId, user.id));
+  await db.delete(analysisRuns).where(eq(analysisRuns.userId, user.id));
+  await db
+    .delete(medications)
+    .where(
+      and(eq(medications.userId, user.id), eq(medications.name, 'Analyse-Prednisolon'))
+    );
+
+  // A second food with no BLS link at all, so the coverage share has something
+  // to be a share OF.
+  const [offFood] = await db
+    .insert(foods)
+    .values({
+      createdByUserId: user.id,
+      name: 'Analyse-Fertiggericht',
+      source: 'off',
+      kcal100: 120,
+    })
+    .onConflictDoNothing()
+    .returning({ id: foods.id });
+  const offFoodId =
+    offFood?.id ??
+    (
+      await db
+        .select({ id: foods.id })
+        .from(foods)
+        .where(sql`lower(${foods.name}) = 'analyse-fertiggericht'`)
+    )[0].id;
+
+  // A BLS-linked food with MEASURED lactose, and one with a measured zero.
+  const [milkCatalog] = await db
+    .select({ id: foodCatalog.id, lactose: foodCatalog.lactose100 })
+    .from(foodCatalog)
+    .where(sql`${foodCatalog.lactose100} > 3`)
+    .limit(1);
+  const [zeroCatalog] = await db
+    .select({ id: foodCatalog.id })
+    .from(foodCatalog)
+    .where(eq(foodCatalog.lactose100, 0))
+    .limit(1);
+
+  check(
+    'the catalog has a measured-lactose entry to test with',
+    Boolean(milkCatalog) && Boolean(zeroCatalog)
+  );
+
+  const [blsFood] = await db
+    .insert(foods)
+    .values({
+      createdByUserId: user.id,
+      name: 'Analyse-Milch',
+      source: 'bls',
+      blsCatalogId: milkCatalog.id,
+      kcal100: 64,
+    })
+    .onConflictDoNothing()
+    .returning({ id: foods.id });
+  const blsFoodId =
+    blsFood?.id ??
+    (
+      await db
+        .select({ id: foods.id })
+        .from(foods)
+        .where(sql`lower(${foods.name}) = 'analyse-milch'`)
+    )[0].id;
+
+  // Tag both analysis foods with gluten so exposure has something to sum.
+  await db
+    .insert(foodTags)
+    .values([
+      { foodId: blsFoodId, tagId: glutenTag.id, source: 'manual', confidence: 'certain' },
+      { foodId: offFoodId, tagId: glutenTag.id, source: 'rule', confidence: 'trace' },
+    ])
+    .onConflictDoNothing();
+
+  // Two meals on day 1: two items in the first, one in the second. This is what
+  // proves the exposure sum crosses BOTH boundaries.
+  const dayOne = analysisDays[0];
+  const [mealA] = await db
+    .insert(meals)
+    .values({
+      userId: user.id,
+      slot: 'breakfast',
+      occurredAt: new Date(`${dayOne}T07:00:00Z`),
+      logDate: dayOne,
+    })
+    .returning({ id: meals.id });
+  const [mealB] = await db
+    .insert(meals)
+    .values({
+      userId: user.id,
+      slot: 'lunch',
+      occurredAt: new Date(`${dayOne}T11:00:00Z`),
+      logDate: dayOne,
+    })
+    .returning({ id: meals.id });
+
+  await db.insert(mealItems).values([
+    // Same meal, same tag, two items: 30 + 20 = 50.
+    { mealId: mealA.id, foodId: blsFoodId, grams: 30, quantity: 30, unit: 'g' },
+    { mealId: mealA.id, foodId: blsFoodId, grams: 20, quantity: 20, unit: 'g' },
+    // A second meal on the same day: another 40, so the day totals 90.
+    { mealId: mealB.id, foodId: blsFoodId, grams: 40, quantity: 40, unit: 'g' },
+    // And an unmeasured food, defaulted to one portion, so the shares differ.
+    { mealId: mealB.id, foodId: offFoodId, grams: 100, quantity: 1, unit: 'portion' },
+  ]);
+
+  // A daily log on day 1 only, so the dense grid has to invent nothing for the
+  // other nineteen days.
+  await db
+    .insert(dailyLogs)
+    .values({ userId: user.id, logDate: dayOne, jointPain: 6, fatigue: 4 })
+    .onConflictDoUpdate({
+      target: [dailyLogs.userId, dailyLogs.logDate],
+      set: { jointPain: 6, fatigue: 4 },
+    });
+
+  // A symptom in the small hours AFTER the range ends: its log_date is the last
+  // day of the range, but its instant is past it.
+  const afterRange = new Date(`${addDays(ANALYSIS_TO, 1)}T01:30:00Z`);
+  await db.insert(symptomEntries).values({
+    userId: user.id,
+    occurredAt: afterRange,
+    logDate: toLogDate(afterRange, TZ, START),
+    severity: 6,
+  });
+
+  // A three-day elimination protocol inside the range.
+  const [protocol] = await db
+    .insert(eliminationProtocols)
+    .values({ userId: user.id, name: 'Analyse-Protokoll', status: 'active' })
+    .returning({ id: eliminationProtocols.id });
+  await db.insert(eliminationPhases).values({
+    protocolId: protocol.id,
+    kind: 'elimination',
+    name: 'Phase',
+    startsOn: analysisDays[5],
+    endsOn: analysisDays[7],
+    sortOrder: 0,
+  });
+
+  // A steroid with a CLOSED schedule version followed by a lower one — a taper.
+  const [pred] = await db
+    .insert(medications)
+    .values({
+      userId: user.id,
+      name: 'Analyse-Prednisolon',
+      activeSubstance: 'Prednisolon',
+      category: 'steroid',
+      form: 'tablet',
+    })
+    .returning({ id: medications.id });
+  const [oldVersion] = await db
+    .insert(medicationSchedules)
+    .values({
+      medicationId: pred.id,
+      kind: 'daily',
+      validFrom: ANALYSIS_FROM,
+      validTo: analysisDays[9],
+    })
+    .returning({ id: medicationSchedules.id });
+  const [newVersion] = await db
+    .insert(medicationSchedules)
+    .values({
+      medicationId: pred.id,
+      kind: 'daily',
+      validFrom: analysisDays[10],
+    })
+    .returning({ id: medicationSchedules.id });
+  await db.insert(medicationScheduleDoses).values([
+    { scheduleId: oldVersion.id, timeOfDay: '08:00', doseAmount: 10, doseUnit: 'mg' },
+    { scheduleId: newVersion.id, timeOfDay: '08:00', doseAmount: 5, doseUnit: 'mg' },
+  ]);
+
+  await db
+    .insert(menstrualEvents)
+    .values({ userId: user.id, eventDate: analysisDays[2], kind: 'period_start' })
+    .onConflictDoNothing();
+
+  /* --- the queries ------------------------------------------------------- */
+
+  const [
+    logs,
+    mealRows,
+    exposureRows,
+    measuredRows,
+    symptomRows,
+    tagDefs,
+    steroidSchedules,
+    intakes,
+    menstrual,
+    protocolIntervals,
+    catalog,
+  ] = await Promise.all([
+    dailyLogRange(user.id, ANALYSIS_FROM, ANALYSIS_TO),
+    mealRange(user.id, ANALYSIS_FROM, ANALYSIS_TO),
+    mealTagExposureRange(user.id, ANALYSIS_FROM, ANALYSIS_TO),
+    mealMeasuredRange(user.id, ANALYSIS_FROM, ANALYSIS_TO),
+    symptomEntryRange(user.id, ANALYSIS_FROM, ANALYSIS_TO),
+    analysedTagDefs(),
+    scheduleVersionsRange(user.id, ANALYSIS_FROM, ANALYSIS_TO, ['steroid']),
+    intakeRange(user.id, ANALYSIS_FROM, ANALYSIS_TO),
+    menstrualEventRange(user.id, addDays(ANALYSIS_FROM, -45), ANALYSIS_TO),
+    protocolDayIntervals(user.id, ANALYSIS_FROM, ANALYSIS_TO),
+    catalogState(),
+  ]);
+
+  check('42 analysed tag definitions', tagDefs.length === 42, String(tagDefs.length));
+  check(
+    'the catalog state is recorded for reproducibility',
+    catalog.rowCount === 7140,
+    String(catalog.rowCount)
+  );
+
+  const glutenExposure = exposureRows.filter((r) => r.tagKey === 'gluten');
+  const mealAGrams = glutenExposure
+    .filter((r) => r.mealId === mealA.id && r.confidence === 'certain')
+    .reduce((sum, r) => sum + r.grams, 0);
+  check(
+    'exposure sums two items inside one meal (50 g)',
+    mealAGrams === 50,
+    String(mealAGrams)
+  );
+
+  const trace = glutenExposure.find((r) => r.confidence === 'trace');
+  check('the trace assignment is returned separately', Boolean(trace));
+
+  // The symptom past the range end must be reachable, or the last day loses its
+  // late-window outcomes without any sign that it did.
+  check(
+    'the symptom fetch reaches past the range end',
+    symptomRows.some((r) => r.occurredAt.getTime() === afterRange.getTime()),
+    String(symptomRows.length)
+  );
+
+  check(
+    'the closed steroid version is returned, not just the current one',
+    steroidSchedules.length === 2,
+    String(steroidSchedules.length)
+  );
+
+  const protocolDayCount = protocolIntervals.reduce((sum, interval) => {
+    const days = eachLogDate(interval.startsOn, interval.endsOn ?? ANALYSIS_TO);
+    return sum + days.length;
+  }, 0);
+  check('the protocol covers three days', protocolDayCount === 3, String(protocolDayCount));
+
+  /* --- the dense grid and the null-versus-zero contract ------------------ */
+
+  const factsInput = {
+    range: { from: ANALYSIS_FROM, to: ANALYSIS_TO },
+    settings: { timeZone: TZ, dayStartHour: START, countTraceExposure: false },
+    dailyLogs: logs,
+    meals: mealRows,
+    exposures: exposureRows,
+    measured: measuredRows,
+    symptoms: symptomRows,
+    tagDefs,
+    steroidSchedules,
+    steroidMedications: new Map([
+      [pred.id, { id: pred.id, name: 'Analyse-Prednisolon', activeSubstance: 'Prednisolon' }],
+    ]),
+    dmardSchedules: [],
+    intakes,
+    menstrual,
+    protocolIntervals,
+  };
+
+  const facts = assembleFacts(factsInput);
+
+  check(
+    'one fact row per calendar day, including unlogged ones',
+    facts.days.length === analysisDays.length,
+    `${facts.days.length} vs ${analysisDays.length}`
+  );
+
+  const unloggedDay = facts.days[3];
+  check(
+    'a day with no daily_log has raIndex null, NOT zero',
+    unloggedDay.raIndex === null,
+    String(unloggedDay.raIndex)
+  );
+  check('and it is marked as having no log', unloggedDay.hasDailyLog === false);
+
+  const firstDay = facts.days[0];
+  check(
+    'the day exposure sums across both meals (90 g)',
+    firstDay.gramsByTagKey.gluten === 90,
+    String(firstDay.gramsByTagKey.gluten)
+  );
+
+  // 90 g of measured food against 100 g of unmeasured: the share must be the
+  // GRAM share, not the average of the per-meal shares.
+  check(
+    'blsGramsShare is gram-weighted (90/190)',
+    Math.abs(firstDay.blsGramsShare - 90 / 190) < 1e-9,
+    firstDay.blsGramsShare.toFixed(4)
+  );
+  // The 100 g portion default is not a stated amount; the three gram entries are.
+  check(
+    'portionEvidenceShare excludes the defaulted portion (90/190)',
+    Math.abs(firstDay.portionEvidenceShare - 90 / 190) < 1e-9,
+    firstDay.portionEvidenceShare.toFixed(4)
+  );
+
+  const measuredDose = firstDay.doseByTagKey.lactose ?? 0;
+  const expectedDose = (90 / 100) * (milkCatalog.lactose ?? 0);
+  check(
+    'the measured lactose dose scales with grams and skips unmeasured food',
+    Math.abs(measuredDose - expectedDose) < 1e-6,
+    `${measuredDose.toFixed(3)} vs ${expectedDose.toFixed(3)}`
+  );
+
+  const protocolFactDays = facts.days.filter((d) => d.inProtocol).length;
+  check(
+    'three days are inside the protocol',
+    protocolFactDays === 3,
+    String(protocolFactDays)
+  );
+
+  // The steroid dose on a day covered by the CLOSED version must use that
+  // version's 10 mg, not the newer 5 mg.
+  const taperBefore = facts.days[8].steroidMgPredEq;
+  const taperAfter = facts.days[12].steroidMgPredEq;
+  check('the closed schedule version drives its own days (10 mg)', taperBefore === 10, String(taperBefore));
+  check('the newer version drives the later days (5 mg)', taperAfter === 5, String(taperAfter));
+
+  const cycleDay = facts.days[2].cycleDay;
+  check('the cycle day is derived from the event', cycleDay === 1, String(cycleDay));
+
+  /* --- the trace switch, in BOTH directions ------------------------------ */
+
+  const withoutTrace = assembleFacts(factsInput).days[0].gramsByTagKey.gluten;
+  const withTrace = assembleFacts({
+    ...factsInput,
+    settings: { ...factsInput.settings, countTraceExposure: true },
+  }).days[0].gramsByTagKey.gluten;
+
+  check(
+    'trace exposure is excluded by default (90 g)',
+    withoutTrace === 90,
+    String(withoutTrace)
+  );
+  // A one-directional test would pass even against a filter that was ripped out.
+  check(
+    'and included when the setting says so (190 g)',
+    withTrace === 190,
+    String(withTrace)
+  );
+
+  /* --- a stored run round-trips and reproduces --------------------------- */
+
+  const first = await runAnalysisForUser(user.id, {
+    from: ANALYSIS_FROM,
+    to: ANALYSIS_TO,
+    bootstrapResamples: 50,
+    rotationResamples: 50,
+    now: new Date('2026-04-21T10:00:00Z'),
+  });
+
+  const storedParams = analysisParamsSchema.safeParse(first.params);
+  const storedResults = analysisResultsSchema.safeParse(first.findings);
+  check('the run params round-trip through zod', storedParams.success);
+  check('the run results round-trip through zod', storedResults.success);
+  check(
+    'the catalog state is stored with the run',
+    first.params.catalog.rowCount === 7140,
+    String(first.params.catalog.rowCount)
+  );
+
+  const second = await runAnalysisForUser(user.id, {
+    from: ANALYSIS_FROM,
+    to: ANALYSIS_TO,
+    bootstrapResamples: 50,
+    rotationResamples: 50,
+    now: new Date('2026-04-21T11:00:00Z'),
+  });
+
+  const firstKeys = first.findings.map((f) => `${f.key}:${f.effect?.point ?? 'x'}`);
+  const secondKeys = second.findings.map((f) => `${f.key}:${f.effect?.point ?? 'x'}`);
+  check(
+    'two runs over the same range are byte-identical',
+    JSON.stringify(firstKeys) === JSON.stringify(secondKeys)
+  );
+
+  const storedRuns = await db
+    .select({ id: analysisRuns.id })
+    .from(analysisRuns)
+    .where(eq(analysisRuns.userId, user.id));
+  check('every run is persisted', storedRuns.length === 2, String(storedRuns.length));
+
+  /* --- the N+1 guard ----------------------------------------------------- */
+
+  const longStart = Date.now();
+  await runAnalysisForUser(user.id, {
+    from: '2025-04-01',
+    to: '2026-04-20',
+    bootstrapResamples: 50,
+    rotationResamples: 50,
+    now: new Date('2026-04-21T12:00:00Z'),
+  });
+  const longMs = Date.now() - longStart;
+  // Blunt, but it is the only thing that catches a per-day query creeping into
+  // the loader.
+  check(`a 385-day run stays under 15 s (${longMs} ms)`, longMs < 15_000);
+
+  await db.delete(analysisRuns).where(eq(analysisRuns.userId, user.id));
+  await db.delete(eliminationProtocols).where(eq(eliminationProtocols.id, protocol.id));
+  await db.delete(menstrualEvents).where(eq(menstrualEvents.userId, user.id));
+  await db.delete(mealItems).where(eq(mealItems.mealId, mealA.id));
+  await db.delete(mealItems).where(eq(mealItems.mealId, mealB.id));
+  await db.delete(foodTags).where(eq(foodTags.foodId, blsFoodId));
+  await db.delete(foodTags).where(eq(foodTags.foodId, offFoodId));
 }
 
 // Clean up. Meals have to go first: meal_item.food_id is deliberately

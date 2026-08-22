@@ -3,8 +3,11 @@
 import { requireUserForAction } from '@/auth.helpers';
 import { db } from '@/db';
 import { userSettings } from '@/db/schema';
-import { revalidateSettings } from '@/lib/revalidate';
-import { updateSettingsSchema } from '@/lib/validation/settings';
+import { revalidateAnalysisSettings, revalidateSettings } from '@/lib/revalidate';
+import {
+  updateSettingsSchema,
+  updateTraceExposureSchema,
+} from '@/lib/validation/settings';
 import type { ActionResult } from './meals';
 
 /**
@@ -40,6 +43,49 @@ export async function setTrackWeight(input: {
 
   // The weight field lives on the day screen, so that has to re-render too.
   revalidateSettings();
+
+  return { ok: true };
+}
+
+/**
+ * Toggles whether 'trace' tag assignments count as exposure.
+ *
+ * `deriveTags` marks "traces of soy" from an OFF `off_trace` rule with
+ * confidence `trace`, and two grams of soy lecithin is not a soy day. Which
+ * side of that line she wants is a judgement, not a fact, so it is hers to set.
+ *
+ * Flipping it invalidates more than the settings screen: the flag is part of
+ * `analysis_run.params`, so the stored ranking now answers a different question
+ * and the analysis has to be recomputed before the numbers agree again.
+ */
+export async function setCountTraceExposure(input: {
+  countTraceExposure: boolean;
+}): Promise<ActionResult> {
+  const user = await requireUserForAction();
+
+  const parsed = updateTraceExposureSchema.safeParse(input);
+  if (!parsed.success) {
+    return {
+      ok: false,
+      error: parsed.error.issues[0]?.message ?? 'Eingabe ungültig',
+    };
+  }
+
+  await db
+    .insert(userSettings)
+    .values({
+      userId: user.id,
+      countTraceExposure: parsed.data.countTraceExposure,
+    })
+    .onConflictDoUpdate({
+      target: userSettings.userId,
+      set: {
+        countTraceExposure: parsed.data.countTraceExposure,
+        updatedAt: new Date(),
+      },
+    });
+
+  revalidateAnalysisSettings();
 
   return { ok: true };
 }

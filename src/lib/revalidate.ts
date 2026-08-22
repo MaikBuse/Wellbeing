@@ -57,3 +57,27 @@ export function revalidateMedications(): void {
 export function revalidateSettings(): void {
   expire([...DAY, '/settings']);
 }
+
+/** The analysis section. A recompute changes every screen under /analyse. */
+const ANALYSIS = [
+  '/analyse',
+  '/analyse/faktoren',
+  '/analyse/faktoren/[key]',
+  '/analyse/muster',
+  '/analyse/bericht',
+] as const;
+
+export function revalidateAnalysis(): void {
+  expire(ANALYSIS);
+}
+
+/**
+ * Settings that change what the analysis computes, not just what it shows.
+ *
+ * `count_trace_exposure` goes into `analysis_run.params`, so flipping it makes
+ * the stored run stale in a way a re-render cannot fix — the page has to say
+ * that a new run is needed, which is why this expires the analysis too.
+ */
+export function revalidateAnalysisSettings(): void {
+  expire([...DAY, '/settings', ...ANALYSIS]);
+}

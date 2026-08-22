@@ -179,7 +179,13 @@ export function tagInputFromCatalog(row: CatalogTagSource): TagInput {
  * `polyol` merges sorbitol and mannitol: they are one FODMAP axis, and a food
  * carrying 0.4 g of each is not below a 0.5 g threshold.
  */
-function measuredValue(
+/**
+ * Exported because the analysis computes a *dose* from the same fields and must
+ * not re-derive `fructose_excess` or `polyol` on its own — a second definition
+ * would eventually disagree with the one that assigned the tag, and then the
+ * dose panel would contradict the exposure it belongs to.
+ */
+export function measuredValue(
   field: string,
   measured: Partial<MeasuredNutrients>
 ): number | null {

@@ -7,6 +7,7 @@ import { Card, CardMeta, CardTitle } from '@/components/ui/card';
 import { PageHeader } from '@/components/ui/page-header';
 import { InstallPrompt } from '@/components/pwa/install-prompt';
 import { TrackWeightSwitch } from '@/components/settings/track-weight-switch';
+import { TraceExposureSwitch } from '@/components/settings/trace-exposure-switch';
 
 export const metadata = { title: 'Einstellungen – Wellbeing' };
 
@@ -38,6 +39,13 @@ export default async function SettingsPage() {
         <CardTitle>Erfassen</CardTitle>
         <div className="mt-3">
           <TrackWeightSwitch enabled={settings.trackWeight} />
+        </div>
+      </Card>
+
+      <Card>
+        <CardTitle>Auswertung</CardTitle>
+        <div className="mt-3">
+          <TraceExposureSwitch enabled={settings.countTraceExposure} />
         </div>
       </Card>
 

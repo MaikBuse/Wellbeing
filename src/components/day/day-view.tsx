@@ -8,6 +8,7 @@ import {
   getStandaloneSymptoms,
 } from '@/db/queries/day';
 import { frequentFoodsForSlot, recentFoods } from '@/db/queries/foods';
+import { menstrualEventsForDay } from '@/db/queries/analysis';
 import {
   activeSchedules,
   asNeededMedications,
@@ -59,6 +60,7 @@ export async function DayView({ logDate }: { logDate: LogDate }) {
     schedulesResult,
     intakes,
     asNeeded,
+    cycleEvents,
   ] = await Promise.all([
     getDayMeals(user.id, logDate),
     getDailyLog(user.id, logDate),
@@ -69,6 +71,9 @@ export async function DayView({ logDate }: { logDate: LogDate }) {
     activeSchedules(user.id, logDate),
     intakesForDay(user.id, logDate),
     asNeededMedications(user.id),
+    settings.trackCycle
+      ? menstrualEventsForDay(user.id, logDate)
+      : Promise.resolve<string[]>([]),
   ]);
 
   const selectedJoints = dailyLog ? await getDailyLogJoints(dailyLog.id) : [];
@@ -229,6 +234,8 @@ export async function DayView({ logDate }: { logDate: LogDate }) {
         }))}
         selectedJoints={selectedJoints.map((joint) => joint.jointKey)}
         trackWeight={settings.trackWeight}
+        trackCycle={settings.trackCycle}
+        cycleEvents={cycleEvents}
       />
 
       <Card variant="sunken">

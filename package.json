@@ -24,6 +24,7 @@
     "db:studio": "drizzle-kit studio",
     "db:seed": "tsx src/db/seed/run.ts",
     "db:check": "tsx src/db/scripts/integration-check.ts",
+    "db:analyse": "tsx src/db/scripts/run-analysis.ts",
     "pre-deploy": "npm run type-check && npm run lint && npm run test && npm run build"
   },
   "dependencies": {
@@ -40,6 +41,8 @@
     "postgres": "^3.4.7",
     "react": "19.2.0",
     "react-dom": "19.2.0",
+    "react-is": "19.2.0",
+    "recharts": "3.10.1",
     "sonner": "^2.0.7",
     "tailwind-merge": "^3.3.1",
     "zod": "^4.4.3",
@@ -51,6 +54,7 @@
     "@types/node": "^22.18.9",
     "@types/react": "^19.2.2",
     "@types/react-dom": "^19.2.2",
+    "@types/react-is": "19.2.0",
     "drizzle-kit": "0.31.10",
     "esbuild": "^0.25.11",
     "eslint": "^9.39.0",
