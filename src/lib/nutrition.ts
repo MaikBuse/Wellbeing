@@ -60,6 +60,50 @@ export function nutrientsForGrams(food: Per100, grams: number): Nutrients {
   };
 }
 
+/**
+ * The inverse of `nutrientsForGrams`: label values stated per `reference` units
+ * turned into the per-100 values the `food` row stores.
+ *
+ * `reference` is a PLAIN NUMBER in the food's own basis unit — grams for solids,
+ * millilitres for drinks. Never pass a density through here. `resolveGrams`
+ * converts ml to grams and `nutrientsForGrams` then divides by 100 as if the
+ * result were grams; the two only cancel because `densityGPerMl` is always 1
+ * today. Feeding a density into this function would make every drink with a real
+ * density wrong in a way nothing in the app displays.
+ *
+ * Not exactly invertible, and it cannot be: the result is stored at scale 2, so
+ * a round trip through `nutrientsForGrams` is off by at most
+ * `0.005 * reference / 100 + 0.005`. Exact when `100 / reference` is a positive
+ * integer, which covers 1, 100 and every other reference worth pinning in a
+ * test. For a 400 g ready meal the worst case is 0.02 g — invisible next to the
+ * whole-gram rounding the screens already do.
+ *
+ * Throws for a reference that is zero, negative or non-finite. That is not
+ * defensive noise: `numeric(10,2)` REJECTS Infinity but silently ACCEPTS NaN,
+ * and Postgres sorts NaN above every number, so a `>= 0` check would not catch
+ * it. The one value that must never reach a column is the one a division by zero
+ * produces.
+ */
+export function per100FromReference(entered: Per100, reference: number): Per100 {
+  if (!Number.isFinite(reference) || reference <= 0) {
+    throw new Error('per100FromReference: reference must be finite and > 0');
+  }
+  return nutrientsPer100(entered, 100 / reference);
+}
+
+function nutrientsPer100(values: Per100, factor: number): Per100 {
+  return {
+    kcal100: scale(values.kcal100, factor),
+    protein100: scale(values.protein100, factor),
+    fat100: scale(values.fat100, factor),
+    satFat100: scale(values.satFat100, factor),
+    carbs100: scale(values.carbs100, factor),
+    sugar100: scale(values.sugar100, factor),
+    fiber100: scale(values.fiber100, factor),
+    salt100: scale(values.salt100, factor),
+  };
+}
+
 export type PortionInput = {
   quantity: number;
   unit: 'g' | 'ml' | 'piece' | 'portion';
@@ -116,9 +160,17 @@ export function formatKcal(value: number | null): string {
   return `${roundKcal(value)} kcal`;
 }
 
-export function formatGrams(value: number | null): string {
+/**
+ * Two decimals, not whole grams.
+ *
+ * `Math.round` used to be fine when nutrients could only be read. It is not once
+ * they can be entered and corrected: typing 8,5 g protein and being shown "9 g"
+ * reads as a bug in the app. On salt it was simply wrong — 0,4 g per 100 g
+ * printed as "0 g", and 0,4 against 1,1 is a difference people watch for.
+ */
+export function formatGrams(value: number | null, digits = 2): string {
   if (value === null) return '–';
-  return `${Math.round(value)} g`;
+  return `${formatGermanNumber(value, digits)} g`;
 }
 
 /** German decimal input: Number('12,5') is NaN. */

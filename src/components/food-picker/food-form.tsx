@@ -1,6 +1,6 @@
 'use client';
 
-import { useTransition } from 'react';
+import { useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -9,6 +9,12 @@ import { Button } from '@/components/ui/button';
 import { Card, CardMeta, CardTitle } from '@/components/ui/card';
 import { Field, Input } from '@/components/ui/field';
 import { Disclosure } from '@/components/ui/disclosure';
+import { parseGermanNumber } from '@/lib/nutrition';
+import {
+  EMPTY_NUTRIENT_DRAFT,
+  NutrientFields,
+  basisLabel,
+} from './nutrient-fields';
 
 export type TagOption = {
   id: string;
@@ -20,6 +26,11 @@ export type TagOption = {
  * Tags matter more here than the exact calorie count: an untagged food is
  * invisible to the later analysis, while a missing macro is merely a gap in a
  * chart.
+ *
+ * Every field is controlled rather than read out of `FormData` on submit. Both
+ * the tag groups and the nutrient fieldset sit inside a `Disclosure`, which
+ * unmounts its children — so collapsing a panel before pressing Speichern used
+ * to drop everything in it, silently, under a success toast.
  */
 export function FoodForm({
   tags,
@@ -31,9 +42,29 @@ export function FoodForm({
   const router = useRouter();
   const [pending, startTransition] = useTransition();
 
-  function submit(formData: FormData) {
+  const [name, setName] = useState('');
+  const [brand, setBrand] = useState('');
+  const [barcode, setBarcode] = useState(defaultBarcode ?? '');
+  const [isBeverage, setIsBeverage] = useState(false);
+  const [portionGrams, setPortionGrams] = useState('');
+  const [tagIds, setTagIds] = useState<string[]>([]);
+  const [nutrients, setNutrients] = useState(EMPTY_NUTRIENT_DRAFT);
+
+  const unit = isBeverage ? 'ml' : 'g';
+  const portion = parseGermanNumber(portionGrams);
+
+  function submit(event: React.FormEvent) {
+    event.preventDefault();
     startTransition(async () => {
-      const result = await createFood(formData);
+      const result = await createFood({
+        name,
+        brand,
+        barcode,
+        isBeverage,
+        defaultPortionGrams: portionGrams,
+        tagIds,
+        ...nutrients,
+      });
       if (result.ok) {
         toast.success('Angelegt');
         router.push(`/foods/${result.foodId}`);
@@ -43,31 +74,51 @@ export function FoodForm({
     });
   }
 
+  function toggleTag(id: string) {
+    setTagIds((current) =>
+      current.includes(id)
+        ? current.filter((value) => value !== id)
+        : [...current, id]
+    );
+  }
+
   const triggers = tags.filter((tag) => tag.category === 'trigger');
-  const nutrients = tags.filter((tag) => tag.category === 'nutrient');
+  const nutrientTags = tags.filter((tag) => tag.category === 'nutrient');
   const groups = tags.filter((tag) => tag.category === 'group');
 
   return (
-    <form action={submit} className="space-y-4">
+    <form onSubmit={submit} className="space-y-4">
       <Card className="space-y-4">
         <Field label="Name" htmlFor="name">
-          <Input id="name" name="name" required autoComplete="off" />
+          <Input
+            id="name"
+            required
+            autoComplete="off"
+            value={name}
+            onChange={(event) => setName(event.target.value)}
+          />
         </Field>
         <Field label="Marke" htmlFor="brand">
-          <Input id="brand" name="brand" autoComplete="off" />
+          <Input
+            id="brand"
+            autoComplete="off"
+            value={brand}
+            onChange={(event) => setBrand(event.target.value)}
+          />
         </Field>
         <Field label="Barcode" htmlFor="barcode">
           <Input
             id="barcode"
-            name="barcode"
             inputMode="numeric"
-            defaultValue={defaultBarcode}
+            value={barcode}
+            onChange={(event) => setBarcode(event.target.value)}
           />
         </Field>
         <label className="flex min-h-11 items-center gap-2 text-base text-fg">
           <input
             type="checkbox"
-            name="isBeverage"
+            checked={isBeverage}
+            onChange={(event) => setIsBeverage(event.target.checked)}
             className="size-5 accent-[var(--color-primary-strong)]"
           />
           Getränk
@@ -81,40 +132,66 @@ export function FoodForm({
           Auswertung nicht auf.
         </CardMeta>
         <div className="mt-3 space-y-3">
-          <TagGroup label="Auslöser-Kandidaten" tags={triggers} />
+          <TagGroup
+            label="Auslöser-Kandidaten"
+            tags={triggers}
+            selected={tagIds}
+            onToggle={toggleTag}
+          />
           <Disclosure label="Ernährungsmuster">
-            <TagGroup label="" tags={nutrients} />
+            <TagGroup
+              label=""
+              tags={nutrientTags}
+              selected={tagIds}
+              onToggle={toggleTag}
+            />
           </Disclosure>
           <Disclosure label="Kategorie">
-            <TagGroup label="" tags={groups} />
+            <TagGroup
+              label=""
+              tags={groups}
+              selected={tagIds}
+              onToggle={toggleTag}
+            />
           </Disclosure>
         </div>
       </Card>
 
-      <Disclosure label="Nährwerte pro 100 g / 100 ml">
-        <Card className="space-y-3">
-          {(
-            [
-              ['kcal100', 'Kalorien (kcal)'],
-              ['protein100', 'Eiweiß (g)'],
-              ['fat100', 'Fett (g)'],
-              ['carbs100', 'Kohlenhydrate (g)'],
-              ['sugar100', 'davon Zucker (g)'],
-              ['fiber100', 'Ballaststoffe (g)'],
-              ['salt100', 'Salz (g)'],
-              ['defaultPortionGrams', 'Übliche Portion (g)'],
-            ] as const
-          ).map(([name, label]) => (
-            <Field key={name} label={label} htmlFor={name}>
-              <Input
-                id={name}
-                name={name}
-                type="text"
-                inputMode="decimal"
-                placeholder="optional"
-              />
-            </Field>
-          ))}
+      {/* The label carries the chosen reference amount, so the collapsed panel
+          already says what the numbers inside it refer to. Having to open it to
+          find that out is the misunderstanding this whole feature removes. */}
+      <Disclosure label={`Nährwerte ${basisLabel(nutrients, unit, portion)}`}>
+        <Card>
+          <NutrientFields
+            draft={nutrients}
+            onChange={setNutrients}
+            unit={unit}
+            portionGrams={portion}
+            portionSlot={
+              <Field
+                label={
+                  nutrients.basisKind === 'portion'
+                    ? `Gewicht einer Portion (${unit})`
+                    : `Übliche Portion (${unit})`
+                }
+                htmlFor="defaultPortionGrams"
+                hint={
+                  nutrients.basisKind === 'portion'
+                    ? 'Die Werte oben werden auf dieses Gewicht bezogen. Es ist auch die Menge, die eine Portion später zählt.'
+                    : 'Was eine Portion wiegt. Wird beim Erfassen als Menge vorgeschlagen.'
+                }
+              >
+                <Input
+                  id="defaultPortionGrams"
+                  type="text"
+                  inputMode="decimal"
+                  value={portionGrams}
+                  onChange={(event) => setPortionGrams(event.target.value)}
+                  placeholder="optional"
+                />
+              </Field>
+            }
+          />
         </Card>
       </Disclosure>
 
@@ -128,7 +205,17 @@ export function FoodForm({
   );
 }
 
-function TagGroup({ label, tags }: { label: string; tags: TagOption[] }) {
+function TagGroup({
+  label,
+  tags,
+  selected,
+  onToggle,
+}: {
+  label: string;
+  tags: TagOption[];
+  selected: string[];
+  onToggle: (id: string) => void;
+}) {
   return (
     <fieldset className="space-y-2">
       {label ? (
@@ -144,8 +231,8 @@ function TagGroup({ label, tags }: { label: string; tags: TagOption[] }) {
           >
             <input
               type="checkbox"
-              name="tagIds"
-              value={tag.id}
+              checked={selected.includes(tag.id)}
+              onChange={() => onToggle(tag.id)}
               className="sr-only"
             />
             {tag.labelDe}

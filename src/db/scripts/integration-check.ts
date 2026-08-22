@@ -33,6 +33,7 @@ import { searchCatalog } from '@/db/queries/foods';
 import { seedLookups } from '@/db/seed/run';
 import { copyCatalogEntryToLibrary } from '@/services/food/fromCatalog';
 import { nutrientsForGrams, resolveGrams } from '@/lib/nutrition';
+import { resolveNutrientBasis } from '@/lib/validation/food';
 import { addDays, eachLogDate, toLogDate } from '@/lib/time';
 import { expandDueDoses } from '@/services/medication/schedule';
 import {
@@ -263,6 +264,143 @@ check(
 await expectReject('zero-gram item rejected', () =>
   db.insert(mealItems).values({ mealId: meal.id, foodId, grams: 0 })
 );
+
+// --- Nutrient reference amounts --------------------------------------------
+// Only Postgres can settle two things here: the round trip through
+// numeric(10,2), and what that type does with a value that is not a number.
+console.log('\nnutrient reference amounts');
+
+// A crashed earlier run would otherwise leave the row behind and the insert
+// below would fail on food_name_uq rather than on anything being tested.
+await db.delete(foods).where(eq(foods.name, 'Testgewürz'));
+
+const spice = resolveNutrientBasis({
+  values: {
+    kcal100: 3.5,
+    protein100: 0.1,
+    fat100: 0.05,
+    satFat100: 0.01,
+    carbs100: 0.5,
+    sugar100: 0.02,
+    fiber100: 0.3,
+    salt100: 0.012,
+  },
+  kind: 'unit',
+  basisAmount: null,
+  portionGrams: null,
+  unit: 'g',
+});
+check('a label stated per 1 g resolves', spice.ok);
+if (spice.ok) {
+  const [spiceFood] = await db
+    .insert(foods)
+    .values({
+      createdByUserId: user.id,
+      name: 'Testgewürz',
+      source: 'manual',
+      ...spice.values,
+    })
+    .returning({ id: foods.id });
+  const [storedSpice] = await db
+    .select({
+      kcal100: foods.kcal100,
+      salt100: foods.salt100,
+      satFat100: foods.satFat100,
+    })
+    .from(foods)
+    .where(eq(foods.id, spiceFood.id));
+  check(
+    'per-1-g values are stored per 100 g (3,5 kcal -> 350)',
+    storedSpice.kcal100 === 350,
+    String(storedSpice.kcal100)
+  );
+  // The case that motivated the feature: at a small reference amount the stored
+  // precision goes UP, so a third decimal of the entry survives.
+  check(
+    '0,012 g salt per 1 g survives numeric(10,2) as 1,2 per 100 g',
+    storedSpice.salt100 === 1.2,
+    String(storedSpice.salt100)
+  );
+  check(
+    'saturated fat is written too, which the manual path used to drop',
+    storedSpice.satFat100 === 1,
+    String(storedSpice.satFat100)
+  );
+  await db.delete(foods).where(eq(foods.id, spiceFood.id));
+}
+
+// Why the guards are two-sided rather than just `>= 0`.
+const [nanProbe] = await db
+  .select({
+    accepted: sql<number>`('NaN'::numeric(10,2))::text = 'NaN'`,
+    nonNegative: sql<boolean>`'NaN'::numeric(10,2) >= 0`,
+    underCap: sql<boolean>`'NaN'::numeric(10,2) <= 900`,
+  })
+  .from(sql`(select 1) as probe`);
+check('numeric(10,2) accepts NaN', Boolean(nanProbe.accepted));
+check(
+  'and sorts it above every number, so a >= 0 constraint cannot catch it',
+  nanProbe.nonNegative === true
+);
+check(
+  'only an upper bound rejects it — which is why the nutrient guards have one',
+  nanProbe.underCap === false
+);
+
+// --- A nutrient correction does not move what was already logged -----------
+const [beforeFix] = await db
+  .select({ kcal: mealItems.kcal, grams: mealItems.grams })
+  .from(mealItems)
+  .where(eq(mealItems.mealId, meal.id));
+
+const corrected = resolveNutrientBasis({
+  values: {
+    kcal100: 78,
+    protein100: 7.5,
+    fat100: 5.4,
+    satFat100: 1.6,
+    carbs100: 0.4,
+    sugar100: 0.2,
+    fiber100: 0,
+    salt100: 0.2,
+  },
+  kind: 'portion',
+  basisAmount: null,
+  portionGrams: 60,
+  unit: 'g',
+});
+check('a label stated per 60 g piece resolves', corrected.ok);
+if (corrected.ok) {
+  await db
+    .update(foods)
+    .set({ ...corrected.values, overriddenFields: ['kcal100', 'salt100'] })
+    .where(eq(foods.id, foodId));
+  const [afterFix] = await db
+    .select({ kcal: mealItems.kcal, grams: mealItems.grams })
+    .from(mealItems)
+    .where(eq(mealItems.mealId, meal.id));
+  check(
+    'correcting a food leaves an already logged meal untouched',
+    afterFix.kcal === beforeFix.kcal && afterFix.grams === beforeFix.grams,
+    `${afterFix.kcal} kcal / ${afterFix.grams} g`
+  );
+  const [refixed] = await db
+    .select({ kcal100: foods.kcal100, overriddenFields: foods.overriddenFields })
+    .from(foods)
+    .where(eq(foods.id, foodId));
+  check(
+    'while the food itself carries the new value (78 kcal per 60 g -> 130)',
+    refixed.kcal100 === 130,
+    String(refixed.kcal100)
+  );
+  // The array column is NOT NULL, and the SQL the replaced per-field action used
+  // would have written NULL here as soon as it appended zero fields.
+  check(
+    'the asserted fields are recorded and the array is never null',
+    refixed.overriddenFields.length === 2,
+    JSON.stringify(refixed.overriddenFields)
+  );
+}
 
 // --- Symptom entries -------------------------------------------------------
 console.log('\nsymptoms');

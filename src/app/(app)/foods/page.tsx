@@ -96,7 +96,8 @@ export default async function FoodsPage({
                     <span className="block text-xs text-muted">
                       {food.brand ? `${food.brand} · ` : ''}
                       <span className="num">
-                        {formatKcal(food.kcal100)} / 100 g
+                        {formatKcal(food.kcal100)} / 100{' '}
+                        {food.basisUnit === 'ml' ? 'ml' : 'g'}
                       </span>
                     </span>
                   </span>

@@ -17,6 +17,8 @@ export type FoodListItem = {
   brand: string | null;
   kcal100: number | null;
   defaultPortionGrams: number | null;
+  /** 'g' or 'ml' — the unit the kcal figure in the list is per 100 OF. */
+  basisUnit: 'g' | 'ml' | 'piece' | 'portion';
   isBeverage: boolean;
   useCount: number;
 };
@@ -27,6 +29,7 @@ const listColumns = {
   brand: foods.brand,
   kcal100: foods.kcal100,
   defaultPortionGrams: foods.defaultPortionGrams,
+  basisUnit: foods.basisUnit,
   isBeverage: foods.isBeverage,
   useCount: foods.useCount,
 };

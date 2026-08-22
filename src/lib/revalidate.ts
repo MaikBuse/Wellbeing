@@ -42,10 +42,11 @@ export function revalidateDay(): void {
 
 /**
  * The food library. It feeds the picker chips on the day screen too
- * (`recentFoods` / `frequentFoodsForSlot`), so `/` is not optional here.
+ * (`recentFoods` / `frequentFoodsForSlot`), so `/` is not optional here, and the
+ * detail page is where nutrients and tags are edited, so it is not either.
  */
 export function revalidateFoods(): void {
-  expire([...DAY, '/foods']);
+  expire([...DAY, '/foods', '/foods/[id]']);
 }
 
 /** Medications, schedules and intakes — the due-dose list lives on the day. */

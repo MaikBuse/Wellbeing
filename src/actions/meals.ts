@@ -531,7 +531,15 @@ export async function copyMealFromYesterday(input: {
   return { ok: true };
 }
 
-/** Re-freezes nutrients for one meal — the explicit alternative to silent drift. */
+/**
+ * Re-freezes nutrients for one meal — the explicit alternative to silent drift.
+ *
+ * Currently unreachable: nothing calls it. That matters more than it looks,
+ * because it is the one function that can undo the snapshot rule, and nutrients
+ * on a food became editable in `updateFoodNutrients`. Whatever eventually calls
+ * this must be an explicit action on ONE named meal — never a side effect of
+ * correcting a food, which would rewrite every past day that food appears in.
+ */
 export async function recomputeMealNutrients(
   mealId: string
 ): Promise<ActionResult> {

@@ -1,6 +1,6 @@
 'use server';
 
-import { and, eq, inArray, isNull, or, sql } from 'drizzle-orm';
+import { and, eq, inArray, isNull, or } from 'drizzle-orm';
 import { requireUserForAction } from '@/auth.helpers';
 import { db } from '@/db';
 import {
@@ -26,12 +26,43 @@ import {
   type TagRule,
 } from '@/services/off/tagRules';
 import {
+  NUTRIENT_FIELDS,
   barcodeSchema,
   createFoodSchema,
   catalogIdSchema,
+  enteredValues,
+  resolveNutrientBasis,
+  updateFoodNutrientsSchema,
   updateFoodTagsSchema,
+  type NutrientField,
 } from '@/lib/validation/food';
+import type { Per100 } from '@/lib/nutrition';
+import type { z } from 'zod';
 import type { ActionResult } from './meals';
+
+/**
+ * Payloads are the schemas' INPUT types, so the numeric fields stay the German
+ * strings the form actually holds ("12,5") and `germanNumber` does the parsing
+ * in one place.
+ */
+export type CreateFoodPayload = z.input<typeof createFoodSchema>;
+export type UpdateFoodNutrientsPayload = z.input<
+  typeof updateFoodNutrientsSchema
+>;
+
+/**
+ * The fields the user actually put a value in.
+ *
+ * This is what `overridden_fields` means — "she has asserted a value here" — and
+ * not "this value changed". A rescale that happens to round-trip to the same
+ * number is still a value she confirmed, and a diff would leave it unmarked for
+ * the next refresh to overwrite, which is the exact failure the column exists to
+ * prevent. A field left EMPTY is not marked: refusing a future refresh the right
+ * to fill a gap she never filled herself would be the opposite of the point.
+ */
+function assertedFields(values: Per100): NutrientField[] {
+  return NUTRIENT_FIELDS.filter((field) => values[field] !== null);
+}
 
 async function loadRules(): Promise<TagRule[]> {
   const rows = await db
@@ -291,25 +322,20 @@ export async function createFoodFromCatalog(
   return { ok: true, foodId: result.foodId };
 }
 
+/**
+ * Takes a plain object, not `FormData`.
+ *
+ * The nutrient fields live inside a `Disclosure`, and `Disclosure` unmounts its
+ * children — so collapsing the panel used to empty every nutrient key out of the
+ * `FormData` and the food was created with no nutrients at all, under a success
+ * toast. Holding the whole form in component state and sending it as an object
+ * removes that class of loss instead of papering over one instance of it.
+ */
 export async function createFood(
-  formData: FormData
+  payload: CreateFoodPayload
 ): Promise<{ ok: true; foodId: string } | { ok: false; error: string }> {
   const user = await requireUserForAction();
-  const parsed = createFoodSchema.safeParse({
-    name: formData.get('name'),
-    brand: formData.get('brand') ?? '',
-    barcode: formData.get('barcode') ?? '',
-    isBeverage: formData.get('isBeverage') ?? undefined,
-    kcal100: formData.get('kcal100') ?? '',
-    protein100: formData.get('protein100') ?? '',
-    fat100: formData.get('fat100') ?? '',
-    carbs100: formData.get('carbs100') ?? '',
-    sugar100: formData.get('sugar100') ?? '',
-    fiber100: formData.get('fiber100') ?? '',
-    salt100: formData.get('salt100') ?? '',
-    defaultPortionGrams: formData.get('defaultPortionGrams') ?? '',
-    tagIds: formData.getAll('tagIds').map(String),
-  });
+  const parsed = createFoodSchema.safeParse(payload);
   if (!parsed.success) {
     return {
       ok: false,
@@ -317,6 +343,16 @@ export async function createFood(
     };
   }
   const input = parsed.data;
+
+  const entered = enteredValues(input);
+  const basis = resolveNutrientBasis({
+    values: entered,
+    kind: input.basisKind,
+    basisAmount: input.basisAmount ?? null,
+    portionGrams: input.defaultPortionGrams ?? null,
+    unit: input.isBeverage ? 'ml' : 'g',
+  });
+  if (!basis.ok) return { ok: false, error: basis.error };
 
   try {
     const [food] = await db
@@ -329,14 +365,9 @@ export async function createFood(
         barcode: input.barcode ?? null,
         basisUnit: input.isBeverage ? 'ml' : 'g',
         isBeverage: input.isBeverage ?? false,
-        kcal100: input.kcal100 ?? null,
-        protein100: input.protein100 ?? null,
-        fat100: input.fat100 ?? null,
-        carbs100: input.carbs100 ?? null,
-        sugar100: input.sugar100 ?? null,
-        fiber100: input.fiber100 ?? null,
-        salt100: input.salt100 ?? null,
+        ...basis.values,
         defaultPortionGrams: input.defaultPortionGrams ?? null,
+        overriddenFields: assertedFields(entered),
       })
       .returning({ id: foods.id });
 
@@ -417,39 +448,72 @@ export async function updateFoodTags(input: {
 }
 
 /**
- * Updating a nutrient marks the field as overridden, so a later OFF refresh
- * copies everything except the fields she corrected herself.
+ * Correct the whole nutrient set at once, on whatever reference amount the label
+ * states them.
+ *
+ * The whole set and not one field at a time: changing the reference amount
+ * changes all eight values together, so eight calls would be neither atomic nor
+ * able to see that sugar now exceeds carbohydrates. The replaced single-field
+ * version also had a live bug waiting for exactly this generalisation —
+ * `array_agg` over zero rows is NULL, which a one-element `array_append` can
+ * never hit but a zero-or-more append can, and `overridden_fields` is NOT NULL.
+ * The set is merged in TypeScript here, off the row that was already read.
+ *
+ * A correction applies from now on. Nutrients on `meal_item` are a frozen
+ * snapshot, so nothing already logged moves — which is the asymmetry to tags,
+ * where a correction is meant to reach backwards.
+ *
+ * `defaultPortionGrams` is deliberately NOT writable here, even though it is
+ * what the "je 1 Portion" basis divides by. It is not a display field: it is the
+ * multiplier `resolveGrams` applies to every logged item, `food_portion` carries
+ * a second copy of it that quick-add prefers, and "Wie gestern" recomputes from
+ * it. Rescaling nutrients and silently moving tomorrow's portion size are two
+ * different decisions and must not share a save button.
  */
-export async function overrideFoodNutrient(input: {
-  foodId: string;
-  field:
-    | 'kcal100'
-    | 'protein100'
-    | 'fat100'
-    | 'carbs100'
-    | 'sugar100'
-    | 'fiber100'
-    | 'salt100'
-    | 'defaultPortionGrams';
-  value: number | null;
-}): Promise<ActionResult> {
+export async function updateFoodNutrients(
+  payload: UpdateFoodNutrientsPayload
+): Promise<ActionResult> {
   await requireUserForAction();
+  const parsed = updateFoodNutrientsSchema.safeParse(payload);
+  if (!parsed.success) {
+    return {
+      ok: false,
+      error: parsed.error.issues[0]?.message ?? 'Eingabe ungültig',
+    };
+  }
+  const input = parsed.data;
+
+  // Existence, not ownership: the library is shared, exactly as for tags.
   const [food] = await db
-    .select({ id: foods.id })
+    .select({
+      id: foods.id,
+      basisUnit: foods.basisUnit,
+      defaultPortionGrams: foods.defaultPortionGrams,
+      overriddenFields: foods.overriddenFields,
+    })
     .from(foods)
     .where(eq(foods.id, input.foodId))
     .limit(1);
   if (!food) return { ok: false, error: 'Lebensmittel nicht gefunden' };
 
+  const entered = enteredValues(input);
+  const basis = resolveNutrientBasis({
+    values: entered,
+    kind: input.basisKind,
+    basisAmount: input.basisAmount ?? null,
+    portionGrams: food.defaultPortionGrams,
+    unit: food.basisUnit === 'ml' ? 'ml' : 'g',
+  });
+  if (!basis.ok) return { ok: false, error: basis.error };
+
+  const overridden = new Set([
+    ...food.overriddenFields,
+    ...assertedFields(entered),
+  ]);
+
   await db
     .update(foods)
-    .set({
-      [input.field]: input.value,
-      overriddenFields: sql`(
-        select array_agg(distinct f)
-        from unnest(array_append(${foods.overriddenFields}, ${input.field})) as f
-      )`,
-    })
+    .set({ ...basis.values, overriddenFields: [...overridden].sort() })
     .where(eq(foods.id, input.foodId));
 
   revalidateFoods();
