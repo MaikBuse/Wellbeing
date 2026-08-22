@@ -11,16 +11,15 @@ import {
 } from '@/actions/meals';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/field';
-import { SeverityBadge } from '@/components/ui/severity-badge';
 import { FoodPicker } from '@/components/food-picker/food-picker';
 import { ReactionDisclosure } from '@/components/symptom/reaction-disclosure';
 import type { SymptomTypeOption } from '@/components/symptom/reaction-sheet';
+import { SymptomEntryRow } from '@/components/symptom/symptom-entry-row';
 import type { DayMeal } from '@/db/queries/day';
 import type { FoodListItem } from '@/db/queries/foods';
 import { formatGermanNumber, formatKcal, sumNutrients } from '@/lib/nutrition';
 import {
   MEAL_SLOT_LABELS,
-  ONSET_LAG_LABELS,
   type MealSlotKey,
   type OnsetLagKey,
 } from '@/lib/scales';
@@ -47,6 +46,7 @@ export function MealSlotSection({
   symptomTypes,
   defaultLags,
   times,
+  reactionTimes,
   index = 0,
   compact = false,
   showEmptyHint = false,
@@ -63,6 +63,8 @@ export function MealSlotSection({
   /** Per meal, its 'HH:MM' in the user's zone. Formatted on the server, because
    * formatTime on the client would fall back to the module default zone. */
   times: Record<string, string>;
+  /** Per reaction, its 'HH:MM' in the user's zone. Same reason as `times`. */
+  reactionTimes: Record<string, string>;
   /** Position on the rail, used only for the entrance stagger. */
   index?: number;
   /** Stay collapsed while empty — used for snacks and drinks. */
@@ -194,25 +196,16 @@ export function MealSlotSection({
 
               {meal.reactions.length > 0 ? (
                 <ul className="space-y-1.5">
-                  {meal.reactions.map((reaction) => (
-                    <li
+                  {meal.reactions.map((reaction, row) => (
+                    <SymptomEntryRow
                       key={reaction.id}
-                      className="flex flex-wrap items-center gap-2 rounded-control bg-soft/50 px-3 py-2 text-sm"
-                    >
-                      <SeverityBadge value={reaction.severity} />
-                      <span className="text-fg">
-                        {reaction.symptoms.length > 0
-                          ? reaction.symptoms.join(', ')
-                          : 'Reaktion'}
-                      </span>
-                      {reaction.onsetLag ? (
-                        <span className="text-muted">
-                          ·{' '}
-                          {ONSET_LAG_LABELS[reaction.onsetLag as OnsetLagKey] ??
-                            reaction.onsetLag}
-                        </span>
-                      ) : null}
-                    </li>
+                      entry={reaction}
+                      time={reactionTimes[reaction.id] ?? ''}
+                      fallbackLabel="Reaktion"
+                      index={row}
+                      className="bg-soft/50"
+                      readOnly={readOnly}
+                    />
                   ))}
                 </ul>
               ) : null}

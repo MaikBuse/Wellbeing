@@ -29,6 +29,8 @@ export type DayMealItem = {
 
 export type DayReaction = {
   id: string;
+  /** The instant, not a formatted time: only the caller knows the user's zone. */
+  occurredAt: Date;
   severity: number;
   onsetLag: string | null;
   note: string | null;
@@ -87,12 +89,16 @@ export async function getDayMeals(
       .select({
         id: symptomEntries.id,
         mealId: symptomEntries.mealId,
+        occurredAt: symptomEntries.occurredAt,
         severity: symptomEntries.severity,
         onsetLag: symptomEntries.onsetLag,
         note: symptomEntries.note,
       })
       .from(symptomEntries)
-      .where(inArray(symptomEntries.mealId, mealIds)),
+      .where(inArray(symptomEntries.mealId, mealIds))
+      // Several reactions per meal are the normal case, and until now their
+      // order was whatever Postgres returned.
+      .orderBy(asc(symptomEntries.occurredAt)),
   ]);
 
   const reactionIds = reactionRows.map((r) => r.id);
@@ -139,6 +145,7 @@ export async function getDayMeals(
       .filter((r) => r.mealId === meal.id)
       .map((r) => ({
         id: r.id,
+        occurredAt: r.occurredAt,
         severity: r.severity,
         onsetLag: r.onsetLag,
         note: r.note,
@@ -214,6 +221,7 @@ export async function getStandaloneSymptoms(
 
   return standalone.map((e) => ({
     id: e.id,
+    occurredAt: e.occurredAt,
     severity: e.severity,
     onsetLag: e.onsetLag,
     note: e.note,

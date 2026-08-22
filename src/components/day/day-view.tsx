@@ -17,17 +17,16 @@ import {
 import { expandDueDoses } from '@/services/medication/schedule';
 import { Card, CardHeader, CardMeta, CardTitle } from '@/components/ui/card';
 import { SectionLabel } from '@/components/ui/section-label';
-import { SeverityBadge } from '@/components/ui/severity-badge';
 import { DailyLogForm } from '@/components/daily/daily-log-form';
 import { DayHeader } from '@/components/day/day-header';
 import { DaySummary } from '@/components/day/day-summary';
 import { MealSlotSection } from '@/components/meal/meal-slot-section';
 import { DueDoses, type DueDoseView } from '@/components/medication/due-doses';
 import { ReactionDisclosure } from '@/components/symptom/reaction-disclosure';
+import { SymptomEntryRow } from '@/components/symptom/symptom-entry-row';
 import { sumNutrients } from '@/lib/nutrition';
 import {
   MEAL_SLOT_ORDER,
-  ONSET_LAG_LABELS,
   defaultLagSince,
   type MealSlotKey,
   type OnsetLagKey,
@@ -142,6 +141,15 @@ export async function DayView({ logDate }: { logDate: LogDate }) {
     ])
   );
 
+  // Both lists of symptom entries in one record: the meal-bound reactions and
+  // the meal-less complaints are the same rows and get the same treatment.
+  const symptomTimes: Record<string, string> = Object.fromEntries(
+    [...meals.flatMap((meal) => meal.reactions), ...standalone].map((entry) => [
+      entry.id,
+      timeOfDayOf(new Date(entry.occurredAt), settings.timeZone),
+    ])
+  );
+
   const allItems = meals.flatMap((meal) => meal.items);
   const dayTotals = sumNutrients(
     allItems.map((item) => ({
@@ -192,6 +200,7 @@ export async function DayView({ logDate }: { logDate: LogDate }) {
               symptomTypes={symptomTypes}
               defaultLags={defaultLags}
               times={mealTimes}
+              reactionTimes={symptomTimes}
               // Snacks and drinks stay collapsed until used: five expanded
               // slots would push the daily check far below the fold.
               compact={slot === 'snack' || slot === 'drink'}
@@ -247,25 +256,16 @@ export async function DayView({ logDate }: { logDate: LogDate }) {
         </CardHeader>
 
         {standalone.length > 0 ? (
-          <ul className="mb-3 space-y-1.5 text-sm">
+          <ul className="mb-3 space-y-1.5">
             {standalone.map((entry, index) => (
-              <li
+              <SymptomEntryRow
                 key={entry.id}
-                className="rise-in flex flex-wrap items-center gap-2 rounded-control bg-card px-3 py-2"
-                style={{ '--i': index } as React.CSSProperties}
-              >
-                <SeverityBadge value={entry.severity} />
-                <span className="text-fg">
-                  {entry.symptoms.length > 0
-                    ? entry.symptoms.join(', ')
-                    : 'Beschwerden'}
-                </span>
-                {entry.onsetLag ? (
-                  <span className="text-muted">
-                    · {ONSET_LAG_LABELS[entry.onsetLag as OnsetLagKey]}
-                  </span>
-                ) : null}
-              </li>
+                entry={entry}
+                time={symptomTimes[entry.id] ?? ''}
+                fallbackLabel="Beschwerden"
+                index={index}
+                className="bg-card"
+              />
             ))}
           </ul>
         ) : null}

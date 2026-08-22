@@ -26,6 +26,7 @@ import {
   medications,
   menstrualEvents,
   symptomEntries,
+  symptomEntrySymptoms,
   symptomTypes,
   userSettings,
 } from '@/db/schema';
@@ -385,7 +386,10 @@ if (corrected.ok) {
     `${afterFix.kcal} kcal / ${afterFix.grams} g`
   );
   const [refixed] = await db
-    .select({ kcal100: foods.kcal100, overriddenFields: foods.overriddenFields })
+    .select({
+      kcal100: foods.kcal100,
+      overriddenFields: foods.overriddenFields,
+    })
     .from(foods)
     .where(eq(foods.id, foodId));
   check(
@@ -449,6 +453,64 @@ await expectReject('severity 11 rejected', () =>
     severity: 11,
   })
 );
+
+// Deleting an entry is a UI affordance now, so the cascade matters: the linked
+// symptom types have to go with it, and the meal has to stay.
+const [doomed] = await db
+  .insert(symptomEntries)
+  .values({
+    userId: user.id,
+    mealId: meal.id,
+    occurredAt: nightSymptom,
+    logDate: symptomLogDate,
+    severity: 4,
+    onsetLag: 'early',
+    note: 'wird gelöscht',
+  })
+  .returning({ id: symptomEntries.id });
+await db
+  .insert(symptomEntrySymptoms)
+  .values({ entryId: doomed.id, symptomTypeId: bloating.id });
+
+// The same statement the server action runs, scoped to the owner.
+const deleted = await db
+  .delete(symptomEntries)
+  .where(
+    and(eq(symptomEntries.id, doomed.id), eq(symptomEntries.userId, user.id))
+  )
+  .returning({ id: symptomEntries.id });
+check('deleting an own symptom entry reports one row', deleted.length === 1);
+
+const orphans = await db
+  .select({ entryId: symptomEntrySymptoms.entryId })
+  .from(symptomEntrySymptoms)
+  .where(eq(symptomEntrySymptoms.entryId, doomed.id));
+check('the symptom links cascade away', orphans.length === 0);
+
+const mealSurvived = await db
+  .select({ id: meals.id })
+  .from(meals)
+  .where(eq(meals.id, meal.id));
+check('the meal survives its deleted reaction', mealSurvived.length === 1);
+
+// A foreign entry must not be deletable — this is the user scope in the action.
+const [foreign] = await db
+  .insert(symptomEntries)
+  .values({
+    userId: otherUser.id,
+    occurredAt: nightSymptom,
+    logDate: symptomLogDate,
+    severity: 3,
+  })
+  .returning({ id: symptomEntries.id });
+const notMine = await db
+  .delete(symptomEntries)
+  .where(
+    and(eq(symptomEntries.id, foreign.id), eq(symptomEntries.userId, user.id))
+  )
+  .returning({ id: symptomEntries.id });
+check("another account's entry is not deletable", notMine.length === 0);
+await db.delete(symptomEntries).where(eq(symptomEntries.id, foreign.id));
 
 // --- Daily log upsert ------------------------------------------------------
 console.log('\ndaily log');
@@ -731,7 +793,11 @@ const [milk] = await db
   .from(foodCatalog)
   .where(eq(foodCatalog.blsCode, 'M111300'))
   .limit(1);
-check('milk keeps its measured lactose', milk?.lactose100 === 3.89, String(milk?.lactose100));
+check(
+  'milk keeps its measured lactose',
+  milk?.lactose100 === 3.89,
+  String(milk?.lactose100)
+);
 
 const [lactoseFree] = await db
   .select()
@@ -761,7 +827,10 @@ check(
   appleHits.map((h) => h.nameDe).join(' | ')
 );
 
-check('a one-character term searches nothing', (await searchCatalog('a')).length === 0);
+check(
+  'a one-character term searches nothing',
+  (await searchCatalog('a')).length === 0
+);
 
 // Copy-on-use, twice, and from two different accounts: the library is shared
 // and unique on the name, so the second pick must find the first food rather
@@ -813,11 +882,7 @@ if (firstPick.ok) {
   );
   // Oats are not a gluten grain — tagRules.ts leaves 'hafer' out of the gluten
   // pattern deliberately, and the catalog copy must not reintroduce it.
-  check(
-    'oats are not tagged gluten',
-    !keys.includes('gluten'),
-    keys.join(',')
-  );
+  check('oats are not tagged gluten', !keys.includes('gluten'), keys.join(','));
   check(
     'oats get no lactose tag from a zero measurement',
     !keys.includes('lactose'),
@@ -848,15 +913,13 @@ console.log('\nanalysis');
   // the first and every count silently doubles. That failure mode already cost
   // one debugging round, and the assertions here are exact counts, so the
   // fixture is made idempotent rather than trusted to exit cleanly.
-  await db
-    .delete(mealItems)
-    .where(
-      sql`${mealItems.mealId} in (
+  await db.delete(mealItems).where(
+    sql`${mealItems.mealId} in (
         select id from meal
         where user_id = ${user.id}
           and log_date between ${ANALYSIS_FROM} and ${ANALYSIS_TO}
       )`
-    );
+  );
   await db
     .delete(meals)
     .where(
@@ -894,7 +957,10 @@ console.log('\nanalysis');
   await db
     .delete(medications)
     .where(
-      and(eq(medications.userId, user.id), eq(medications.name, 'Analyse-Prednisolon'))
+      and(
+        eq(medications.userId, user.id),
+        eq(medications.name, 'Analyse-Prednisolon')
+      )
     );
 
   // A second food with no BLS link at all, so the coverage share has something
@@ -959,8 +1025,18 @@ console.log('\nanalysis');
   await db
     .insert(foodTags)
     .values([
-      { foodId: blsFoodId, tagId: glutenTag.id, source: 'manual', confidence: 'certain' },
-      { foodId: offFoodId, tagId: glutenTag.id, source: 'rule', confidence: 'trace' },
+      {
+        foodId: blsFoodId,
+        tagId: glutenTag.id,
+        source: 'manual',
+        confidence: 'certain',
+      },
+      {
+        foodId: offFoodId,
+        tagId: glutenTag.id,
+        source: 'rule',
+        confidence: 'trace',
+      },
     ])
     .onConflictDoNothing();
 
@@ -993,7 +1069,13 @@ console.log('\nanalysis');
     // A second meal on the same day: another 40, so the day totals 90.
     { mealId: mealB.id, foodId: blsFoodId, grams: 40, quantity: 40, unit: 'g' },
     // And an unmeasured food, defaulted to one portion, so the shares differ.
-    { mealId: mealB.id, foodId: offFoodId, grams: 100, quantity: 1, unit: 'portion' },
+    {
+      mealId: mealB.id,
+      foodId: offFoodId,
+      grams: 100,
+      quantity: 1,
+      unit: 'portion',
+    },
   ]);
 
   // A daily log on day 1 only, so the dense grid has to invent nothing for the
@@ -1059,13 +1141,27 @@ console.log('\nanalysis');
     })
     .returning({ id: medicationSchedules.id });
   await db.insert(medicationScheduleDoses).values([
-    { scheduleId: oldVersion.id, timeOfDay: '08:00', doseAmount: 10, doseUnit: 'mg' },
-    { scheduleId: newVersion.id, timeOfDay: '08:00', doseAmount: 5, doseUnit: 'mg' },
+    {
+      scheduleId: oldVersion.id,
+      timeOfDay: '08:00',
+      doseAmount: 10,
+      doseUnit: 'mg',
+    },
+    {
+      scheduleId: newVersion.id,
+      timeOfDay: '08:00',
+      doseAmount: 5,
+      doseUnit: 'mg',
+    },
   ]);
 
   await db
     .insert(menstrualEvents)
-    .values({ userId: user.id, eventDate: analysisDays[2], kind: 'period_start' })
+    .values({
+      userId: user.id,
+      eventDate: analysisDays[2],
+      kind: 'period_start',
+    })
     .onConflictDoNothing();
 
   /* --- the queries ------------------------------------------------------- */
@@ -1096,7 +1192,11 @@ console.log('\nanalysis');
     catalogState(),
   ]);
 
-  check('42 analysed tag definitions', tagDefs.length === 42, String(tagDefs.length));
+  check(
+    '42 analysed tag definitions',
+    tagDefs.length === 42,
+    String(tagDefs.length)
+  );
   check(
     'the catalog state is recorded for reproducibility',
     catalog.rowCount === 7140,
@@ -1134,7 +1234,11 @@ console.log('\nanalysis');
     const days = eachLogDate(interval.startsOn, interval.endsOn ?? ANALYSIS_TO);
     return sum + days.length;
   }, 0);
-  check('the protocol covers three days', protocolDayCount === 3, String(protocolDayCount));
+  check(
+    'the protocol covers three days',
+    protocolDayCount === 3,
+    String(protocolDayCount)
+  );
 
   /* --- the dense grid and the null-versus-zero contract ------------------ */
 
@@ -1149,7 +1253,14 @@ console.log('\nanalysis');
     tagDefs,
     steroidSchedules,
     steroidMedications: new Map([
-      [pred.id, { id: pred.id, name: 'Analyse-Prednisolon', activeSubstance: 'Prednisolon' }],
+      [
+        pred.id,
+        {
+          id: pred.id,
+          name: 'Analyse-Prednisolon',
+          activeSubstance: 'Prednisolon',
+        },
+      ],
     ]),
     dmardSchedules: [],
     intakes,
@@ -1213,11 +1324,23 @@ console.log('\nanalysis');
   // version's 10 mg, not the newer 5 mg.
   const taperBefore = facts.days[8].steroidMgPredEq;
   const taperAfter = facts.days[12].steroidMgPredEq;
-  check('the closed schedule version drives its own days (10 mg)', taperBefore === 10, String(taperBefore));
-  check('the newer version drives the later days (5 mg)', taperAfter === 5, String(taperAfter));
+  check(
+    'the closed schedule version drives its own days (10 mg)',
+    taperBefore === 10,
+    String(taperBefore)
+  );
+  check(
+    'the newer version drives the later days (5 mg)',
+    taperAfter === 5,
+    String(taperAfter)
+  );
 
   const cycleDay = facts.days[2].cycleDay;
-  check('the cycle day is derived from the event', cycleDay === 1, String(cycleDay));
+  check(
+    'the cycle day is derived from the event',
+    cycleDay === 1,
+    String(cycleDay)
+  );
 
   /* --- the trace switch, in BOTH directions ------------------------------ */
 
@@ -1278,9 +1401,12 @@ console.log('\nanalysis');
   );
 
   const byStatus = {
-    confirmatory: first.findings.filter((f) => f.status === 'confirmatory').length,
-    provisional: first.findings.filter((f) => f.status === 'provisional').length,
-    notComputable: first.findings.filter((f) => f.status === 'not_computable').length,
+    confirmatory: first.findings.filter((f) => f.status === 'confirmatory')
+      .length,
+    provisional: first.findings.filter((f) => f.status === 'provisional')
+      .length,
+    notComputable: first.findings.filter((f) => f.status === 'not_computable')
+      .length,
   };
   check(
     'twenty days of fixture produce nothing confirmatory',
@@ -1326,8 +1452,12 @@ console.log('\nanalysis');
     String(first.params.fdr.families.food_tag.m)
   );
 
-  const firstKeys = first.findings.map((f) => `${f.key}:${f.effect?.point ?? 'x'}`);
-  const secondKeys = second.findings.map((f) => `${f.key}:${f.effect?.point ?? 'x'}`);
+  const firstKeys = first.findings.map(
+    (f) => `${f.key}:${f.effect?.point ?? 'x'}`
+  );
+  const secondKeys = second.findings.map(
+    (f) => `${f.key}:${f.effect?.point ?? 'x'}`
+  );
   check(
     'two runs over the same range are byte-identical',
     JSON.stringify(firstKeys) === JSON.stringify(secondKeys)
@@ -1337,7 +1467,11 @@ console.log('\nanalysis');
     .select({ id: analysisRuns.id })
     .from(analysisRuns)
     .where(eq(analysisRuns.userId, user.id));
-  check('every run is persisted', storedRuns.length === 2, String(storedRuns.length));
+  check(
+    'every run is persisted',
+    storedRuns.length === 2,
+    String(storedRuns.length)
+  );
 
   /* --- the N+1 guard ----------------------------------------------------- */
 
@@ -1355,7 +1489,9 @@ console.log('\nanalysis');
   check(`a 385-day run stays under 15 s (${longMs} ms)`, longMs < 15_000);
 
   await db.delete(analysisRuns).where(eq(analysisRuns.userId, user.id));
-  await db.delete(eliminationProtocols).where(eq(eliminationProtocols.id, protocol.id));
+  await db
+    .delete(eliminationProtocols)
+    .where(eq(eliminationProtocols.id, protocol.id));
   await db.delete(menstrualEvents).where(eq(menstrualEvents.userId, user.id));
   await db.delete(mealItems).where(eq(mealItems.mealId, mealA.id));
   await db.delete(mealItems).where(eq(mealItems.mealId, mealB.id));
