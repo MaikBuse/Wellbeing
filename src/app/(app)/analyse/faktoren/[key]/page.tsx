@@ -25,8 +25,12 @@ import {
   formatQValue,
   formatRiskDifference,
   formatStability,
+  formatGatesMet,
+  NOT_COMPUTABLE_NOTICE,
+  NO_INTERVAL_NOTICE,
 } from '@/services/analysis/labels';
 import { gateLabel } from '@/services/analysis/gates';
+import { ReliabilityMeter } from '@/components/analysis/reliability-meter';
 import { ONSET_LAG_LABELS, type OnsetLagKey } from '@/lib/scales';
 import { formatGermanNumber } from '@/lib/nutrition';
 import Link from 'next/link';
@@ -57,10 +61,12 @@ export default async function FactorDetailPage({
       <Card>
         <CardHeader
           action={
-            <FindingChip
-              label={FINDING_LABELS[finding.label]}
-              tone={finding.label}
-            />
+            finding.label ? (
+              <FindingChip
+                label={FINDING_LABELS[finding.label]}
+                tone={finding.label}
+              />
+            ) : null
           }
         >
           <CardTitle>{finding.labelDe}</CardTitle>
@@ -97,18 +103,52 @@ export default async function FactorDetailPage({
           </>
         ) : (
           <div className="space-y-1">
-            <p className="text-sm text-fg">Noch nicht auswertbar.</p>
-            <ul className="space-y-0.5 text-sm text-muted">
-              {finding.gates
-                .filter((g) => !g.passed)
-                .map((g) => (
-                  <li key={g.gate}>
-                    {gateLabel(g.gate)}: {g.have} von {g.need}
-                  </li>
-                ))}
-            </ul>
+            <p className="num text-sm text-fg">
+              {finding.exposed.n > 0
+                ? finding.model === 'meal_reaction'
+                  ? formatMealCounts(
+                      finding.labelDe,
+                      finding.exposed.notable ?? 0,
+                      finding.exposed.n,
+                      finding.unexposed.notable ?? 0,
+                      finding.unexposed.n
+                    )
+                  : formatDayCounts(finding.exposed.n, finding.unexposed.n)
+                : NOT_COMPUTABLE_NOTICE}
+            </p>
+            {finding.status === 'provisional' ? (
+              <p className="text-xs text-muted">{NO_INTERVAL_NOTICE}</p>
+            ) : null}
           </div>
         )}
+
+        <div className="mt-3">
+          <ReliabilityMeter level={finding.reliability.level} />
+          <p className="mt-1 text-xs text-muted">
+            {formatGatesMet(
+              finding.reliability.gatesMet,
+              finding.reliability.gatesTotal
+            )}
+          </p>
+        </div>
+
+        <Disclosure label="Was noch fehlt">
+          <ul className="space-y-0.5 text-sm">
+            {finding.gates.map((g) => (
+              <li
+                key={g.gate}
+                className={
+                  g.gate === finding.reliability.bindingGate
+                    ? 'font-medium text-fg'
+                    : 'text-muted'
+                }
+              >
+                {gateLabel(g.gate)}: {g.have} von {g.need}
+                {g.scope === 'global' ? ' (gilt für alle Faktoren)' : ''}
+              </li>
+            ))}
+          </ul>
+        </Disclosure>
 
         <div className="mt-3 flex flex-wrap gap-1.5 text-xs">
           <span className="rounded-pill bg-bg-sunken px-2 py-0.5 text-muted">
@@ -138,9 +178,13 @@ export default async function FactorDetailPage({
           </p>
         ) : null}
 
-        {finding.qValue !== null ? (
+        {finding.qValue !== null ||
+        finding.sensitivity?.flareKept ||
+        finding.attributionBias ? (
           <Disclosure label="Wie sicher ist das">
-            <p className="text-sm text-muted">{formatQValue(finding.qValue)}</p>
+            {finding.qValue !== null ? (
+              <p className="text-sm text-muted">{formatQValue(finding.qValue)}</p>
+            ) : null}
             {finding.sensitivity?.flareKept ? (
               <p className="mt-2 text-sm text-muted">
                 Mit Schubtagen gerechnet ergäbe sich{' '}

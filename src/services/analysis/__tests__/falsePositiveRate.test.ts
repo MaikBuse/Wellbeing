@@ -50,7 +50,12 @@ function runTrial(index: number, days: number, tagCount: number, resamples: numb
     rotationResamples: resamples,
   });
 
-  const tested = findings.filter((f) => f.status === 'tested' && f.pValue !== null);
+  // Confirmatory only — which is the same set as before, because a p-value now
+  // exists only for those. If this ever shrinks toward zero, the
+  // `hypotheses > 100` assertion below is the guard that notices.
+  const tested = findings.filter(
+    (f) => f.status === 'confirmatory' && f.pValue !== null
+  );
   return {
     rawRejections: tested.filter((f) => (f.pValue as number) < 0.05).length,
     testedHypotheses: tested.length,

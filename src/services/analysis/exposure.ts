@@ -149,6 +149,16 @@ export type CollinearPair = { key: string; jaccard: number };
  * two tags that agree on 91 % of days, and without saying so the ranking will
  * confidently name whichever of them happens to sort first.
  */
+/**
+ * Below this many days touched by either factor, an overlap is arithmetic.
+ *
+ * Two factors each eaten on the same single day give a Jaccard of 1.0, which
+ * would render "tritt an 100 % der Tage gemeinsam auf — beide lassen sich hier
+ * nicht trennen". True, and vacuous, and it would fire on nearly every pair in
+ * the first weeks.
+ */
+export const MIN_UNION_FOR_COLLINEARITY = 10;
+
 export function collinearity(
   exposureByKey: Record<string, boolean[]>,
   threshold: number
@@ -160,7 +170,14 @@ export function collinearity(
     const pairs: CollinearPair[] = [];
     for (const other of keys) {
       if (other === key) continue;
-      const overlap = jaccard(exposureByKey[key], exposureByKey[other]);
+      let union = 0;
+      const a = exposureByKey[key];
+      const b = exposureByKey[other];
+      for (let i = 0; i < Math.min(a.length, b.length); i++) {
+        if (a[i] || b[i]) union++;
+      }
+      if (union < MIN_UNION_FOR_COLLINEARITY) continue;
+      const overlap = jaccard(a, b);
       if (overlap >= threshold) pairs.push({ key: other, jaccard: overlap });
     }
     pairs.sort((a, b) => b.jaccard - a.jaccard);

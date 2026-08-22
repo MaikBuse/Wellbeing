@@ -4,6 +4,7 @@ import { latestRun } from '@/db/queries/analysis';
 import { FactorList } from '@/components/analysis/factor-list';
 import { NotYetList } from '@/components/analysis/not-yet-list';
 import { RecomputeButton } from '@/components/analysis/recompute-button';
+import { DataBasisBanner } from '@/components/analysis/data-basis-banner';
 import { Card, CardHeader, CardMeta, CardTitle } from '@/components/ui/card';
 import { EmptyState } from '@/components/ui/empty-state';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -67,15 +68,27 @@ async function FactorsContent() {
   }
 
   const findings = results.data;
-  const mealFindings = findings.filter(
-    (f) => f.effect?.kind === 'risk_difference_pp'
-  );
-  const dayFindings = findings.filter(
-    (f) => f.effect?.kind === 'mean_index_points'
-  );
+  /*
+   * Split by MODEL, not by `effect.kind`.
+   *
+   * A provisional factor with too few distinct days has no interval, so
+   * `effect` is null and `effect?.kind` is undefined — splitting on that put
+   * every one of them in neither card and made them invisible, which is exactly
+   * what this change exists to stop. The model is known whether or not an
+   * interval could be computed.
+   */
+  const mealFindings = findings.filter((f) => f.model === 'meal_reaction');
+  const dayFindings = findings.filter((f) => f.model === 'ra_next_day');
 
   return (
     <div className="space-y-4">
+      {params.success ? (
+        <DataBasisBanner
+          trackedDays={params.data.counts.trackedDays}
+          daysWithRaIndex={params.data.counts.daysWithRaIndex}
+        />
+      ) : null}
+
       <Card variant="plain">
         <CardHeader action={<RecomputeButton hasRun />}>
           <CardTitle>Verdachts-Ranking</CardTitle>
@@ -99,7 +112,7 @@ async function FactorsContent() {
                 {params.data.bootstrap.expectedBlockLength} Tage
                 {params.data.bootstrap.acfLagUsed !== null
                   ? ` (aus der Autokorrelation bei Verzögerung ${params.data.bootstrap.acfLagUsed})`
-                  : ' (Obergrenze, weil die Autokorrelation nicht abfiel)'}
+                  : ' (Obergrenze — die Reihe ist noch zu kurz, um die Autokorrelation zu messen)'}
               </li>
               <li>
                 Anteil messbarer Gramm:{' '}

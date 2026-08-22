@@ -128,9 +128,11 @@ describe('isExposed', () => {
 
 describe('collinearity', () => {
   it('finds tags that are effectively the same days', () => {
-    const gluten = [true, true, true, true, false, false];
-    const yeast = [true, true, true, true, false, false];
-    const fish = [false, false, false, false, true, true];
+    // Long enough to clear MIN_UNION_FOR_COLLINEARITY: below that a shared
+    // single day gives a Jaccard of 1.0, which is true and vacuous.
+    const gluten = [...Array(12).fill(true), ...Array(12).fill(false)];
+    const yeast = [...Array(12).fill(true), ...Array(12).fill(false)];
+    const fish = [...Array(12).fill(false), ...Array(12).fill(true)];
 
     const result = collinearity({ gluten, yeast, fish }, COLLINEARITY_THRESHOLD);
     expect(result.gluten.map((p) => p.key)).toEqual(['yeast']);
@@ -139,14 +141,23 @@ describe('collinearity', () => {
   });
 
   it('never reports a tag against itself', () => {
-    const result = collinearity({ a: [true, true] }, 0);
+    const result = collinearity({ a: Array(12).fill(true) }, 0);
     expect(result.a).toEqual([]);
   });
 
+  it('ignores an overlap built from too few days', () => {
+    // Two factors eaten on the same single day give a Jaccard of 1.0. Reporting
+    // "tritt an 100 % der Tage gemeinsam auf" from one day would fire on nearly
+    // every pair in the first weeks.
+    const a = [true, false, false, false];
+    const b = [true, false, false, false];
+    expect(collinearity({ a, b }, COLLINEARITY_THRESHOLD).a).toEqual([]);
+  });
+
   it('sorts the strongest overlap first', () => {
-    const a = [true, true, true, true];
-    const b = [true, true, true, false];
-    const c = [true, true, true, true];
+    const a = Array(12).fill(true);
+    const b = [...Array(11).fill(true), false];
+    const c = Array(12).fill(true);
     const result = collinearity({ a, b, c }, 0.5);
     expect(result.a[0].key).toBe('c');
   });

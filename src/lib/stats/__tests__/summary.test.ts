@@ -66,9 +66,15 @@ describe('standardisedDiff', () => {
     expect(d as number).toBeGreaterThan(0);
   });
 
-  it('is 0 for two identical constant groups and null when they differ', () => {
-    expect(standardisedDiff([4, 4], [4, 4])).toBe(0);
+  it('is null whenever neither group varies, identical means included', () => {
+    // It used to return 0 for identical constants, which reads as "perfectly
+    // balanced" when it means "cannot tell" — the most reassuring possible
+    // number for the case with the least behind it. The caller distinguishes
+    // "no variation" from "completely separated" from the means instead.
+    expect(standardisedDiff([4, 4], [4, 4])).toBeNull();
     expect(standardisedDiff([4, 4], [8, 8])).toBeNull();
+    // One observation per arm has no spread either.
+    expect(standardisedDiff([6], [0])).toBeNull();
   });
 });
 

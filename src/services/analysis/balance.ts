@@ -16,6 +16,19 @@ export type BalanceRow = {
   exposedMean: number | null;
   unexposedMean: number | null;
   standardisedDiff: number | null;
+  /** Observations behind each mean. A row from 1 against 200 must say so. */
+  exposedN: number;
+  unexposedN: number;
+  /**
+   * Why there is no standardised difference, when there is none.
+   *
+   * `separated` is the important one and it was invisible: with no variation in
+   * either arm but different means — the exposed days ALL flares and the
+   * unexposed days none — the pooled spread is zero, the old code returned null,
+   * and the table printed "–". That is the most extreme imbalance expressible,
+   * and it was rendering as "no data" while the warning sentence never fired.
+   */
+  note: 'no_variation' | 'separated' | null;
 };
 
 /** Above this, the imbalance is called out in words rather than left in a table. */
@@ -56,25 +69,47 @@ export function balanceTable(
       if (value === null) continue;
       (exposed[d] ? exposedValues : unexposedValues).push(value);
     }
+    const exposedMean = mean(exposedValues);
+    const unexposedMean = mean(unexposedValues);
+    const diff = standardisedDiff(exposedValues, unexposedValues);
+
+    let note: BalanceRow['note'] = null;
+    if (diff === null && exposedMean !== null && unexposedMean !== null) {
+      note = exposedMean === unexposedMean ? 'no_variation' : 'separated';
+    }
+
     return {
       key: extractor.key,
       labelDe: extractor.labelDe,
-      exposedMean: mean(exposedValues),
-      unexposedMean: mean(unexposedValues),
-      standardisedDiff: standardisedDiff(exposedValues, unexposedValues),
+      exposedMean,
+      unexposedMean,
+      standardisedDiff: diff,
+      exposedN: exposedValues.length,
+      unexposedN: unexposedValues.length,
+      note,
     };
   });
 }
 
-/** The rows worth saying out loud, worst first. */
+/**
+ * The rows worth saying out loud, worst first.
+ *
+ * A fully separated row counts as maximally imbalanced — it used to be filtered
+ * out for having no standardised difference, which silenced the warning in
+ * exactly the case that most deserved it.
+ */
 export function notableImbalances(rows: readonly BalanceRow[]): BalanceRow[] {
   return rows
     .filter(
       (row) =>
-        row.standardisedDiff !== null &&
-        Math.abs(row.standardisedDiff) >= NOTABLE_IMBALANCE
+        row.note === 'separated' ||
+        (row.standardisedDiff !== null &&
+          Math.abs(row.standardisedDiff) >= NOTABLE_IMBALANCE)
     )
-    .sort(
-      (a, b) => Math.abs(b.standardisedDiff ?? 0) - Math.abs(a.standardisedDiff ?? 0)
-    );
+    .sort((a, b) => severity(b) - severity(a));
+}
+
+function severity(row: BalanceRow): number {
+  if (row.note === 'separated') return Number.POSITIVE_INFINITY;
+  return Math.abs(row.standardisedDiff ?? 0);
 }

@@ -49,7 +49,9 @@ const { runId, params, findings, durationMs } = await runAnalysisForUser(user.id
   to,
 });
 
-const tested = findings.filter((f) => f.status === 'tested');
+const confirmatory = findings.filter((f) => f.status === 'confirmatory');
+const provisional = findings.filter((f) => f.status === 'provisional');
+const notComputable = findings.filter((f) => f.status === 'not_computable');
 const clear = findings.filter((f) => f.label === 'clear');
 const possible = findings.filter((f) => f.label === 'possible');
 
@@ -60,16 +62,21 @@ console.log({
   blockLength: params.bootstrap.expectedBlockLength,
   counts: params.counts,
   findings: findings.length,
-  tested: tested.length,
+  confirmatory: confirmatory.length,
+  provisional: provisional.length,
+  provisionalWithInterval: provisional.filter((f) => f.effect).length,
+  notComputable: notComputable.length,
   clear: clear.length,
   possible: possible.length,
 });
 
 if (printFindings) {
-  for (const finding of [...tested].sort((a, b) => b.sortScore - a.sortScore)) {
+  const listed = [...confirmatory, ...provisional];
+  for (const finding of listed) {
     console.log(
       [
-        finding.label.padEnd(10),
+        finding.status.padEnd(14),
+        (finding.label ?? `rel ${finding.reliability.level}/4`).padEnd(22),
         finding.key.padEnd(24),
         finding.model === 'meal_reaction' ? 'Mahlzeit' : 'Folgetag',
         finding.effect

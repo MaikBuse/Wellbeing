@@ -23,7 +23,7 @@ export const ANALYSIS_KIND_SUSPICION = 'suspicion_ranking';
  * statistic, a window. The stability indicator refuses to chain across a bump,
  * because "top for three weeks" must not span a change in the meaning of "top".
  */
-export const ALGORITHM_VERSION = 1;
+export const ALGORITHM_VERSION = 2;
 
 export type TagConfidence = 'certain' | 'likely' | 'trace';
 export type SymptomGroupKey = 'gi' | 'systemic' | 'msk' | 'skin' | 'airway' | 'other';
@@ -32,7 +32,31 @@ export type SteroidStep = 'none' | 'low' | 'medium' | 'high';
 
 export type AnalysisFamily = 'food_tag' | 'confounder';
 export type AnalysisModel = 'meal_reaction' | 'ra_next_day';
-export type FindingLabel = 'clear' | 'possible' | 'no_signal' | 'not_yet';
+
+/**
+ * The verdict, and ONLY the verdict.
+ *
+ * `not_yet` used to live in here, which conflated two different questions: what
+ * the data says, and how much data there is. Those are now separate fields —
+ * `label` is null unless the factor is `confirmatory`, and `reliability` carries
+ * the other axis for everybody.
+ */
+export type FindingLabel = 'clear' | 'possible' | 'no_signal';
+
+/**
+ * Three tiers, and the middle one is the point of the whole design.
+ *
+ * `confirmatory` — an estimate, a usable interval, and every gate met. Earns a
+ *   p-value, a q-value, a verdict, a rank, and a stability streak.
+ * `provisional` — an estimate and a usable interval, but at least one gate
+ *   short. Shows the effect, the interval and the reliability indicator. No
+ *   p-value at all, so it cannot enter the Benjamini-Hochberg family and cannot
+ *   dilute the correction for the factors that did earn one.
+ * `not_computable` — one arm empty, or the interval degenerate. Shows the counts
+ *   and what is missing.
+ */
+export type FindingStatus = 'confirmatory' | 'provisional' | 'not_computable';
+
 export type EffectKind = 'risk_difference_pp' | 'mean_index_points';
 
 /** How the exposure for this factor was established. Shown as a badge. */
@@ -138,6 +162,7 @@ const gateSchema = z.object({
   have: z.number(),
   need: z.number(),
   passed: z.boolean(),
+  scope: z.enum(['factor', 'global']),
 });
 
 const effectSchema = z.object({
@@ -155,8 +180,17 @@ export const analysisFindingSchema = z.object({
   window: z.string().nullable(),
   measurementBasis: z.enum(['measured', 'rule', 'self_reported']),
 
-  status: z.enum(['tested', 'not_yet']),
-  label: z.enum(['clear', 'possible', 'no_signal', 'not_yet']),
+  status: z.enum(['confirmatory', 'provisional', 'not_computable']),
+  /** Null for anything that is not confirmatory: no data, no verdict. */
+  label: z.enum(['clear', 'possible', 'no_signal']).nullable(),
+
+  reliability: z.object({
+    sufficiency: z.number(),
+    level: z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(4)]),
+    bindingGate: z.string().nullable(),
+    gatesMet: z.number().int(),
+    gatesTotal: z.number().int(),
+  }),
 
   effect: effectSchema.nullable(),
   evidenceStrength: z.number(),
@@ -205,6 +239,9 @@ export const analysisFindingSchema = z.object({
       exposedMean: z.number().nullable(),
       unexposedMean: z.number().nullable(),
       standardisedDiff: z.number().nullable(),
+      exposedN: z.number().int(),
+      unexposedN: z.number().int(),
+      note: z.enum(['no_variation', 'separated']).nullable(),
     })
   ),
 
@@ -219,7 +256,24 @@ export const analysisFindingSchema = z.object({
     })
     .nullable(),
 
-  sensitivity: z.object({ flareKept: effectSchema.nullable() }).nullable(),
+  /**
+   * A point only — never an interval.
+   *
+   * This used to store `ciLow = ciHigh = point` in the same shape as a real
+   * effect, which passes the schema and reads as a perfect interval to anything
+   * that looks at it. A zero-width interval sharing a slot with real ones is a
+   * trap, so the shape now says what it is.
+   */
+  sensitivity: z
+    .object({
+      flareKept: z
+        .object({
+          kind: z.enum(['risk_difference_pp', 'mean_index_points']),
+          point: z.number(),
+        })
+        .nullable(),
+    })
+    .nullable(),
 
   gates: z.array(gateSchema),
 

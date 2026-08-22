@@ -71,7 +71,10 @@ export function standardisedDiff(
   const sa = sampleStdDev(a) ?? 0;
   const sb = sampleStdDev(b) ?? 0;
   const pooled = Math.sqrt((sa * sa + sb * sb) / 2);
-  if (pooled === 0) return ma === mb ? 0 : null;
+  // Zero pooled spread means neither arm varies — with one observation each,
+  // that is "cannot tell", not "perfectly balanced". Returning 0 there would
+  // print a reassuring number for the case with the least behind it.
+  if (pooled === 0) return null;
   return (ma - mb) / pooled;
 }
 

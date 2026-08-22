@@ -14,8 +14,57 @@ export const FINDING_LABELS: Record<FindingLabel, string> = {
   clear: 'deutlicher Zusammenhang',
   possible: 'möglicher Zusammenhang',
   no_signal: 'kein Hinweis',
-  not_yet: 'noch nicht auswertbar',
 };
+
+/**
+ * The reliability axis, kept separate from the verdict on purpose.
+ *
+ * A verdict says what the data shows; this says how much data there is. Putting
+ * a word like "vorläufig" into the verdict chip would merge the two, which is
+ * the confusion the whole split exists to avoid.
+ */
+export const RELIABILITY_LABELS: Record<1 | 2 | 3 | 4, string> = {
+  1: 'sehr grob',
+  2: 'grob',
+  3: 'vorläufig',
+  4: 'belastbar',
+};
+
+export const STATUS_SECTION_LABELS = {
+  confirmatory: 'Belastbar',
+  provisional: 'Vorläufig',
+  not_computable: 'Noch keine Vergleichsdaten',
+} as const;
+
+export const PROVISIONAL_NOTICE =
+  'Diese Zahlen sind gerechnet, aber noch nicht gegengerechnet — dafür fehlen Daten. Deshalb steht hier kein Urteil, nur der Zwischenstand.';
+
+export const PROVISIONAL_ORDER_NOTICE =
+  'Sortiert danach, was am nächsten dran ist — nicht nach Effektstärke. Bei wenigen Beobachtungen springt die Effektstärke in groben Stufen und würde das Zufälligste nach oben spülen.';
+
+export const NOT_COMPUTABLE_NOTICE =
+  'Hier lässt sich noch kein Vergleich rechnen: es fehlt eine der beiden Seiten. Fehlende Daten heißen nicht „unbedenklich“.';
+
+export const DATA_BASIS_NOTICE =
+  'Alles ist ab dem ersten Tag zu sehen. Wie viel dahinter steckt, steht bei jedem Faktor daneben.';
+
+/**
+ * Why a provisional row shows counts but no range.
+ *
+ * The reason is worth stating rather than leaving a gap: the block bootstrap
+ * resamples days, and one exposed day cannot move — so an interval there would
+ * describe the other arm and read as precise.
+ */
+export const NO_INTERVAL_NOTICE =
+  'Für einen Bereich sind es noch zu wenige verschiedene Tage. Aus einem einzelnen Tag ließe sich einer berechnen, aber er würde eine Genauigkeit behaupten, die nicht da ist.';
+
+export const BALANCE_NOTE_LABELS = {
+  no_variation: 'keine Streuung',
+  separated: 'vollständig getrennt',
+} as const;
+
+export const SEPARATED_NOTICE =
+  'An den Tagen mit diesem Faktor war das durchweg anders als an den Tagen ohne. Stärker kann eine Vermischung nicht sein — hier lässt sich beides nicht trennen.';
 
 export const FAMILY_LABELS = {
   food_tag: 'Ernährung',
@@ -105,6 +154,36 @@ export function formatQValue(q: number): string {
 export function formatStability(weeks: number): string | null {
   if (weeks < 2) return null;
   return `seit ${weeks} Wochen unter den ersten fünf`;
+}
+
+/** "11 von 25 Tagen mit diesem Merkmal" — the gate that caps the score. */
+export function formatGateProgress(
+  bindingLabel: string,
+  have: number,
+  need: number
+): string {
+  return `${have} von ${need} ${bindingLabel}`;
+}
+
+/** The global data basis, for the banner above everything. */
+export function formatDataBasis(trackedDays: number, need: number): string {
+  if (trackedDays >= need) {
+    return `Datenbasis: ${trackedDays} erfasste Tage — genug für belastbare Aussagen.`;
+  }
+  return `Datenbasis: ${trackedDays} von ${need} erfassten Tagen.`;
+}
+
+/** "3 von 4 Voraussetzungen erfüllt" — how many, not just how far. */
+export function formatGatesMet(met: number, total: number): string {
+  return `${met} von ${total} Voraussetzungen erfüllt`;
+}
+
+/** How many provisional factors sit below the confirmatory ones. */
+export function formatProvisionalCount(count: number): string {
+  if (count === 0) return '';
+  return count === 1
+    ? 'dazu 1 vorläufiger Faktor, der noch zu wenig Daten hat'
+    : `dazu ${count} vorläufige Faktoren, die noch zu wenig Daten haben`;
 }
 
 export function formatShortfall(

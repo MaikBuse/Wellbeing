@@ -2,6 +2,7 @@ import { Suspense } from 'react';
 import { requireUser } from '@/auth.helpers';
 import { loadDaySeries } from '@/services/analysis/loader';
 import { RaHero } from '@/components/analysis/ra-hero';
+import { DataBasisBanner } from '@/components/analysis/data-basis-banner';
 import { RangeFilter, type RangePreset } from '@/components/analysis/range-filter';
 import { ChartFrame } from '@/components/chart/chart-frame';
 import { DataTable } from '@/components/chart/data-table';
@@ -112,6 +113,11 @@ async function OverviewContent({ preset }: { preset: RangePreset }) {
 
   return (
     <>
+      <DataBasisBanner
+        trackedDays={facts.counts.trackedDays}
+        daysWithRaIndex={facts.counts.daysWithRaIndex}
+      />
+
       <RaHero days={days} />
 
       <ChartFrame

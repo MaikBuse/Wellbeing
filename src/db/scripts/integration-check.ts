@@ -1129,6 +1129,65 @@ console.log('\nanalysis');
     now: new Date('2026-04-21T11:00:00Z'),
   });
 
+  /* --- every factor is visible, and only the solid ones are judged -------- */
+
+  // The premise of the whole change: nothing is hidden. Twenty days of fixture
+  // cannot pass a single gate, and every one of the 51 factors is still present.
+  check(
+    'all factors are present, none hidden',
+    first.findings.length === 51,
+    String(first.findings.length)
+  );
+
+  const byStatus = {
+    confirmatory: first.findings.filter((f) => f.status === 'confirmatory').length,
+    provisional: first.findings.filter((f) => f.status === 'provisional').length,
+    notComputable: first.findings.filter((f) => f.status === 'not_computable').length,
+  };
+  check(
+    'twenty days of fixture produce nothing confirmatory',
+    byStatus.confirmatory === 0,
+    JSON.stringify(byStatus)
+  );
+
+  // The inversion of the old assertion: a thin factor used to be withheld, and
+  // is now shown — with counts, and with no verdict attached.
+  const thin = first.findings.find((f) => f.key === 'gluten');
+  check('a thin factor is visible rather than withheld', Boolean(thin));
+  check(
+    'and carries no verdict, q-value or rank',
+    thin?.label === null && thin?.qValue === null && thin?.rank === null,
+    `${thin?.label} ${thin?.qValue} ${thin?.rank}`
+  );
+  check(
+    'and sits at the bottom of the reliability scale',
+    thin?.reliability.level === 1,
+    String(thin?.reliability.level)
+  );
+  check(
+    'and names something recordable, never "more reactions"',
+    thin?.reliability.bindingGate !== 'notableReactionsTotal',
+    String(thin?.reliability.bindingGate)
+  );
+
+  // The reliability score must come from factor gates only — the global ones are
+  // identical for every factor, so including them would make the whole column
+  // one number.
+  const levels = new Set(first.findings.map((f) => f.reliability.level));
+  check(
+    'the reliability level varies between factors',
+    levels.size > 1,
+    [...levels].join(',')
+  );
+
+  // BH counts only what it tested. With nothing confirmatory, m is zero even
+  // though 51 factors are on screen.
+  check(
+    'the BH family counts only confirmatory factors',
+    first.params.fdr.families.food_tag.m === 0,
+    String(first.params.fdr.families.food_tag.m)
+  );
+
   const firstKeys = first.findings.map((f) => `${f.key}:${f.effect?.point ?? 'x'}`);
   const secondKeys = second.findings.map((f) => `${f.key}:${f.effect?.point ?? 'x'}`);
   check(

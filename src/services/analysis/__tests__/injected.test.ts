@@ -22,7 +22,7 @@ describe('an injected meal-reaction effect', () => {
   const target = findings.find((f) => f.key === 'tag_0');
 
   it('is found and called a clear connection', () => {
-    expect(target?.status).toBe('tested');
+    expect(target?.status).toBe('confirmatory');
     expect(target?.label).toBe('clear');
   });
 
@@ -82,7 +82,7 @@ describe('an injected next-day RA effect', () => {
   it('is found on the day model, in index points', () => {
     expect(target?.model).toBe('ra_next_day');
     expect(target?.effect?.kind).toBe('mean_index_points');
-    expect(target?.status).toBe('tested');
+    expect(target?.status).toBe('confirmatory');
   });
 
   it('recovers the sign and a plausible magnitude', () => {
@@ -162,10 +162,22 @@ describe('the pre-declared window is load-bearing', () => {
 });
 
 describe('a real effect on too little data', () => {
-  it('lands in "not yet", not in a confident null', () => {
-    // The failure mode this guards against: an under-powered tag reporting a
-    // tight interval around zero, which reads as "ruled out" when it is really
-    // "never looked at".
+  it('is shown, but never judged, and never given an interval it has not earned', () => {
+    /*
+     * This test used to assert the factor was hidden. It is now visible — that
+     * is the point of the change — so the guarantee has moved rather than gone
+     * away.
+     *
+     * The old comment warned about "an under-powered tag reporting a tight
+     * interval around zero, which reads as ruled out when it is really never
+     * looked at". Measurement showed it understated the danger: with one
+     * exposed day the interval is tight around EIGHTY-NINE percentage points,
+     * not around zero, because a single-day arm contributes zero bootstrap
+     * variance and the interval ends up describing the other arm.
+     *
+     * So: visible, with its counts, and with no interval, no verdict, no
+     * q-value, no rank, and no stability.
+     */
     const facts = synthesiseFacts({
       seed: 'thin',
       days: 120,
@@ -185,11 +197,22 @@ describe('a real effect on too little data', () => {
     const { findings } = computeSuspicionRanking(facts, RUN);
     const target = findings.find((f) => f.key === 'rare');
 
-    expect(target?.status).toBe('not_yet');
-    expect(target?.label).toBe('not_yet');
+    expect(target?.status).not.toBe('confirmatory');
+    expect(target?.label).toBeNull();
+    expect(target?.qValue).toBeNull();
+    expect(target?.pValue).toBeNull();
+    expect(target?.rank).toBeNull();
+    expect(target?.stability.weeksInTopFive).toBe(0);
+
+    // No interval: the arm cannot move the bootstrap, so any interval would be
+    // a claim about the other arm wearing this factor's name.
     expect(target?.effect).toBeNull();
-    // And it says what is missing, so she knows what to record more of.
+
+    // But it is on screen, at the bottom of the reliability scale, and it says
+    // what is missing.
+    expect(target?.reliability.level).toBe(1);
     expect(target?.gates.some((g) => !g.passed)).toBe(true);
+    expect(target?.reliability.bindingGate).not.toBeNull();
   });
 });
 
@@ -206,7 +229,7 @@ describe('an injected confounder effect', () => {
     const target = findings.find((f) => f.key === 'sleep_short');
 
     expect(target?.family).toBe('confounder');
-    expect(target?.status).toBe('tested');
+    expect(target?.status).toBe('confirmatory');
     expect(target?.label).toBe('clear');
     expect(target?.effect?.point).toBeGreaterThan(0.3);
   });

@@ -1,7 +1,11 @@
 import { Card, CardHeader, CardMeta, CardTitle } from '@/components/ui/card';
 import { DataTable } from '@/components/chart/data-table';
 import { NOTABLE_IMBALANCE } from '@/services/analysis/balance';
-import { formatImbalance } from '@/services/analysis/labels';
+import {
+  BALANCE_NOTE_LABELS,
+  SEPARATED_NOTICE,
+  formatImbalance,
+} from '@/services/analysis/labels';
 import { formatGermanNumber } from '@/lib/nutrition';
 import type { AnalysisFinding } from '@/services/analysis/types';
 
@@ -42,7 +46,9 @@ export function BalanceTable({ finding }: { finding: AnalysisFinding }) {
 
       {notable.length > 0 ? (
         <p className="mb-3 text-sm text-primary-strong">
-          {formatImbalance(finding.labelDe, notable[0].labelDe)}
+          {notable[0].note === 'separated'
+            ? SEPARATED_NOTICE
+            : formatImbalance(finding.labelDe, notable[0].labelDe)}
         </p>
       ) : null}
 
@@ -73,9 +79,19 @@ export function BalanceTable({ finding }: { finding: AnalysisFinding }) {
             label: 'Unterschied',
             align: 'right',
             render: (row) =>
-              row.standardisedDiff === null
-                ? '–'
-                : formatGermanNumber(round(row.standardisedDiff)),
+              row.standardisedDiff !== null
+                ? formatGermanNumber(round(row.standardisedDiff))
+                : row.note
+                  ? BALANCE_NOTE_LABELS[row.note]
+                  : '–',
+          },
+          {
+            // A row computed from one observation against two hundred has to
+            // say so; without this it looked like any other row.
+            key: 'n',
+            label: 'Fälle',
+            align: 'right',
+            render: (row) => `${row.exposedN} / ${row.unexposedN}`,
           },
         ]}
         rows={rows}

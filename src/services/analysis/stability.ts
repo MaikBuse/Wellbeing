@@ -13,6 +13,7 @@
  * therefore say precisely as much as one.
  */
 import { isoWeekKey, toLogDate, type LogDate } from '@/lib/time';
+import type { FindingStatus } from './types';
 
 export const TOP_RANK = 5;
 export type RankByKey = ReadonlyMap<string, number | null>;
@@ -34,7 +35,11 @@ export type StabilityInput = {
   dayStartHour: number;
   /** When the run being scored was computed. Explicit, never inferred. */
   currentComputedAt: Date;
-  current: readonly { key: string; rank: number | null; status: 'tested' | 'not_yet' }[];
+  current: readonly {
+    key: string;
+    rank: number | null;
+    status: FindingStatus;
+  }[];
   /** STRICTLY earlier runs. The current run must not appear here. */
   priorRuns: readonly PriorRun[];
 };
@@ -65,7 +70,10 @@ export function computeStability(
   const previous = orderedWeeks.length > 0 ? weeks.get(orderedWeeks[0]) : undefined;
 
   for (const entry of input.current) {
-    const inTopNow = entry.status === 'tested' && isTop(entry.rank);
+    // Confirmatory only. A provisional factor has no rank, and letting one
+    // earn "top five for three weeks" is exactly what this indicator exists to
+    // prevent.
+    const inTopNow = entry.status === 'confirmatory' && isTop(entry.rank);
     let streak = inTopNow ? 1 : 0;
 
     if (inTopNow) {

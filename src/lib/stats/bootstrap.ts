@@ -36,10 +36,24 @@ const ACF_MAX_LAG = 30;
  * under-preserve the dependence and produce intervals that are too narrow —
  * the exact failure this whole module exists to prevent.
  */
+export type BlockLengthBasis = 'acf' | 'no_decay' | 'too_short';
+
 export function estimateBlockLength(series: readonly number[]): {
   blockLength: number;
   acfLagUsed: number | null;
+  basis: BlockLengthBasis;
 } {
+  // Fewer than three points cannot say anything about autocorrelation. The
+  // ceiling is still the conservative choice, but the reason must not be
+  // reported as "measured and did not decay" — that would be a claim about
+  // something never measured.
+  if (series.length < 3) {
+    return {
+      blockLength: MAX_BLOCK_DAYS,
+      acfLagUsed: null,
+      basis: 'too_short',
+    };
+  }
   const maxLag = Math.min(ACF_MAX_LAG, series.length - 1);
   for (let lag = 1; lag <= maxLag; lag++) {
     const r = acf(series, lag);
@@ -48,10 +62,11 @@ export function estimateBlockLength(series: readonly number[]): {
       return {
         blockLength: clampBlock(2 * lag),
         acfLagUsed: lag,
+        basis: 'acf',
       };
     }
   }
-  return { blockLength: MAX_BLOCK_DAYS, acfLagUsed: null };
+  return { blockLength: MAX_BLOCK_DAYS, acfLagUsed: null, basis: 'no_decay' };
 }
 
 function clampBlock(value: number): number {

@@ -17,6 +17,7 @@ import {
   RA_INDEX_NOTICE,
   formatIndexPoints,
   formatInterval,
+  formatProvisionalCount,
   formatRiskDifference,
 } from '@/services/analysis/labels';
 import { formatLogDateLong } from '@/lib/time';
@@ -44,10 +45,25 @@ export default async function ReportPage() {
   const params = run ? analysisParamsSchema.safeParse(run.params) : null;
   const findings = results?.success ? results.data : [];
 
+  /*
+   * Confirmatory only, and that is a deliberate exception to "show everything".
+   *
+   * This is the one page that leaves the house. A rheumatologist with seven
+   * minutes should not have to sort forty rows of wide intervals to find the
+   * three that carry something, and a provisional number on paper — without the
+   * reliability meter beside it — reads as a finding. The count of the others is
+   * named instead, so nothing is concealed.
+   */
   const notable = findings
-    .filter((f) => f.label === 'clear' || f.label === 'possible')
+    .filter(
+      (f) =>
+        f.status === 'confirmatory' &&
+        (f.label === 'clear' || f.label === 'possible')
+    )
     .sort((a, b) => b.sortScore - a.sortScore)
     .slice(0, 8);
+
+  const provisionalCount = findings.filter((f) => f.status === 'provisional').length;
 
   const days = series.facts.days;
   const flareDays = days.filter((d) => d.isFlare).length;
@@ -135,6 +151,13 @@ export default async function ReportPage() {
           </CardMeta>
         </CardHeader>
 
+        {provisionalCount > 0 ? (
+          <p className="mb-3 text-sm text-muted">
+            {formatProvisionalCount(provisionalCount)}. Sie stehen in der App,
+            hier nicht — dafür fehlen noch Daten.
+          </p>
+        ) : null}
+
         {notable.length === 0 ? (
           <p className="text-sm text-muted">
             Im ausgewerteten Zeitraum hat sich kein Zusammenhang deutlich genug
@@ -177,7 +200,7 @@ export default async function ReportPage() {
               {
                 key: 'verdict',
                 label: 'Einordnung',
-                render: (row) => FINDING_LABELS[row.label],
+                render: (row) => (row.label ? FINDING_LABELS[row.label] : '–'),
               },
             ]}
             rows={notable}

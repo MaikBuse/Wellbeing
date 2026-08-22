@@ -4,9 +4,13 @@ import {
   FindingChip,
   IntervalScale,
 } from '@/components/chart/interval-row';
+import { ReliabilityMeter } from './reliability-meter';
+import { gateLabel } from '@/services/analysis/gates';
 import {
   FINDING_LABELS,
   MEASUREMENT_BASIS_LABELS,
+  NO_INTERVAL_NOTICE,
+  formatGateProgress,
   formatCollinearity,
   formatDayCounts,
   formatIndexPoints,
@@ -40,6 +44,9 @@ export function FactorRow({
   const unit = effect?.kind === 'risk_difference_pp' ? 'pp' : 'points';
   const stability = formatStability(finding.stability.weeksInTopFive);
   const collinear = finding.collinearWith[0];
+  const binding = finding.reliability.bindingGate
+    ? finding.gates.find((g) => g.gate === finding.reliability.bindingGate)
+    : null;
 
   return (
     <li>
@@ -62,13 +69,34 @@ export function FactorRow({
             </p>
           </div>
           <div className="flex shrink-0 items-center gap-1">
-            <FindingChip
-              label={FINDING_LABELS[finding.label]}
-              tone={finding.label}
-            />
+            {finding.label ? (
+              <FindingChip
+                label={FINDING_LABELS[finding.label]}
+                tone={finding.label}
+              />
+            ) : null}
             <ChevronRight aria-hidden className="size-4 text-muted" />
           </div>
         </div>
+
+        {effect === null && finding.status === 'provisional' ? (
+          <>
+            <p className="num mt-1.5 text-sm text-fg">
+              {finding.effect === null && finding.exposed.n > 0
+                ? finding.model === 'meal_reaction'
+                  ? formatMealCounts(
+                      finding.labelDe,
+                      finding.exposed.notable ?? 0,
+                      finding.exposed.n,
+                      finding.unexposed.notable ?? 0,
+                      finding.unexposed.n
+                    )
+                  : formatDayCounts(finding.exposed.n, finding.unexposed.n)
+                : null}
+            </p>
+            <p className="mt-0.5 text-xs text-muted">{NO_INTERVAL_NOTICE}</p>
+          </>
+        ) : null}
 
         {effect ? (
           <>
@@ -100,6 +128,20 @@ export function FactorRow({
             </p>
           </>
         ) : null}
+
+        <ReliabilityMeter
+          className="mt-1"
+          level={finding.reliability.level}
+          detail={
+            binding
+              ? formatGateProgress(
+                  gateLabel(binding.gate),
+                  binding.have,
+                  binding.need
+                )
+              : null
+          }
+        />
 
         {collinear ? (
           <p className="mt-1 text-xs text-primary-strong">

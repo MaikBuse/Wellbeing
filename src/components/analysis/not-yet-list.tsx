@@ -1,7 +1,11 @@
 import { Card, CardHeader, CardMeta, CardTitle } from '@/components/ui/card';
 import { Disclosure } from '@/components/ui/disclosure';
-import { gateLabel, largestShortfall } from '@/services/analysis/gates';
-import { formatShortfall } from '@/services/analysis/labels';
+import { actionableBindingGate, gateLabel } from '@/services/analysis/gates';
+import {
+  NOT_COMPUTABLE_NOTICE,
+  STATUS_SECTION_LABELS,
+  formatShortfall,
+} from '@/services/analysis/labels';
 import type { AnalysisFinding } from '@/services/analysis/types';
 
 /**
@@ -13,11 +17,11 @@ import type { AnalysisFinding } from '@/services/analysis/types';
  * "we did not look at this" and "this is fine" are different statements.
  */
 export function NotYetList({ findings }: { findings: AnalysisFinding[] }) {
-  const pending = findings.filter((f) => f.status === 'not_yet');
+  const pending = findings.filter((f) => f.status === 'not_computable');
   if (pending.length === 0) return null;
 
   const rows = pending
-    .map((finding) => ({ finding, gate: largestShortfall(finding.gates) }))
+    .map((finding) => ({ finding, gate: actionableBindingGate(finding.gates) }))
     .filter(
       (row): row is { finding: AnalysisFinding; gate: NonNullable<typeof row.gate> } =>
         row.gate !== null
@@ -30,10 +34,9 @@ export function NotYetList({ findings }: { findings: AnalysisFinding[] }) {
   return (
     <Card variant="sunken">
       <CardHeader>
-        <CardTitle>Noch nicht auswertbar</CardTitle>
+        <CardTitle>{STATUS_SECTION_LABELS.not_computable}</CardTitle>
         <CardMeta>
-          {pending.length} Faktoren. Fehlende Daten heißen nicht
-          &bdquo;unbedenklich&ldquo;.
+          {pending.length} Faktoren. {NOT_COMPUTABLE_NOTICE}
         </CardMeta>
       </CardHeader>
       <Disclosure label={`${rows.length} Faktoren anzeigen`}>

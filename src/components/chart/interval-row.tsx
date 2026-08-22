@@ -132,13 +132,18 @@ export function IntervalAxis({
   );
 }
 
-/** The four-step verdict, as a chip. Never colour alone — the word is the label. */
+/**
+ * The verdict, as a chip. Never colour alone — the word is the label.
+ *
+ * Three tones, not four: `not_yet` was never a verdict but a statement about
+ * how much data there is, and that axis now belongs to the reliability meter.
+ */
 export function FindingChip({
   label,
   tone,
 }: {
   label: string;
-  tone: 'clear' | 'possible' | 'no_signal' | 'not_yet';
+  tone: 'clear' | 'possible' | 'no_signal';
 }) {
   return (
     <span
@@ -146,8 +151,7 @@ export function FindingChip({
         'inline-flex shrink-0 items-center rounded-pill px-2 py-0.5 text-xs font-medium',
         tone === 'clear' && 'bg-secondary/25 text-fg',
         tone === 'possible' && 'bg-soft text-primary-fg',
-        tone === 'no_signal' && 'bg-bg-sunken text-muted',
-        tone === 'not_yet' && 'bg-bg-sunken text-muted'
+        tone === 'no_signal' && 'bg-bg-sunken text-muted'
       )}
     >
       {label}

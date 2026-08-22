@@ -169,19 +169,38 @@ export function synthesiseFacts(options: SyntheticOptions): Facts {
     }
   }
 
-  // --- confounder series, generated BEFORE the RA series so it can feed it --
+  /*
+   * --- confounder series, generated BEFORE the RA series so it can feed it --
+   *
+   * ALL of them vary, not just sleep and stress.
+   *
+   * It used to be those two only, which left the other seven constant or null —
+   * so the confounder family shrank to m = 2, Benjamini-Hochberg barely
+   * corrected, and a p of 0.04 came back as q = 0.08 and was called a discovery
+   * on pure noise. The generator was quietly weakening the very correction that
+   * the null tests exist to verify.
+   */
   const sleepMinutes: (number | null)[] = [];
+  const sleepQuality: (number | null)[] = [];
   const stress: (number | null)[] = [];
+  const activityMinutes: (number | null)[] = [];
+  const activityIntensity: (number | null)[] = [];
   const varyConfounders = options.varyConfounders ?? false;
   for (let i = 0; i < n; i++) {
     if (!varyConfounders) {
       sleepMinutes.push(420);
+      sleepQuality.push(6);
       stress.push(4);
+      activityMinutes.push(30);
+      activityIntensity.push(null);
       continue;
     }
     // Short nights come in runs too — a bad week, not scattered days.
     sleepMinutes.push(rng() < 0.3 ? 300 + Math.floor(rng() * 100) : 420 + Math.floor(rng() * 120));
+    sleepQuality.push(2 * Math.floor(rng() * 6));
     stress.push(2 * Math.floor(rng() * 6));
+    activityMinutes.push(rng() < 0.25 ? 0 : Math.floor(rng() * 90));
+    activityIntensity.push(2 * Math.floor(rng() * 6));
   }
 
   const sleepEffect = options.sleepEffect ?? 0;
@@ -364,10 +383,10 @@ export function synthesiseFacts(options: SyntheticOptions): Facts {
       blsGramsShare: totalGrams === 0 ? 0 : blsGrams / totalGrams,
       portionEvidenceShare: totalGrams === 0 ? 0 : statedGrams / totalGrams,
       sleepMinutes: hasLog[i] ? sleepMinutes[i] : null,
-      sleepQuality: hasLog[i] ? 6 : null,
+      sleepQuality: hasLog[i] ? sleepQuality[i] : null,
       stress: hasLog[i] ? stress[i] : null,
-      activityMinutes: hasLog[i] ? 30 : null,
-      activityIntensity: null,
+      activityMinutes: hasLog[i] ? activityMinutes[i] : null,
+      activityIntensity: hasLog[i] ? activityIntensity[i] : null,
       steroidMgPredEq: null,
       steroidStep: 'none',
       cyclePhase: 'unknown',

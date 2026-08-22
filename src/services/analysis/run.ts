@@ -41,6 +41,9 @@ import {
   MODEL_B_GATES,
   allPassed,
   gate,
+  hasEnoughBlocks,
+  intervalIsSupported,
+  reliability,
   type GateResult,
 } from './gates';
 import {
@@ -63,6 +66,7 @@ import {
   type AnalysisParams,
   type EffectKind,
   type FindingLabel,
+  type FindingStatus,
   type MeasurementBasis,
 } from './types';
 
@@ -71,7 +75,28 @@ export const ROTATION_RESAMPLES = 2000;
 export const FDR_ALPHA = 0.1;
 /** The "possible" band: weaker than a discovery, strong enough to look at. */
 export const POSSIBLE_Q = 0.25;
-export const TOP_RANK_FOR_STABILITY = 5;
+
+/**
+ * Below this many finite resamples the interval is not an interval.
+ *
+ * 50 of 2000 is 2.5 %: if the statistic is undefined in over 97 % of draws
+ * there is nothing to characterise. Deliberately low — this is a guard against
+ * an arithmetic artefact, not a case-count gate sneaking back in.
+ */
+export const MIN_BOOTSTRAP_SAMPLES = 50;
+
+/**
+ * Minimum observations behind a dose-response bucket.
+ *
+ * Without it a bucket of one fills its bar completely and outranks a bucket of
+ * four hundred — a rank inversion by construction. Ten is the smallest count at
+ * which a proportion carries a plus-or-minus thirty rather than fifty points.
+ *
+ * The other descriptive panels — `probabilityOfSuperiority`, `attributionBias`,
+ * `sensitivity` — do not use this: they are confirmatory-only, which is a
+ * stricter bar and needs no separate number.
+ */
+export const MIN_PER_ARM_FOR_DESCRIPTIVES = 10;
 
 export type RunOptions = {
   seed: string;
@@ -108,7 +133,12 @@ type Candidate = {
   /** Day-level exposure vector, for collinearity and the balance table. */
   dayExposure: Uint8Array;
   gates: GateResult[];
-  /** Null when a gate failed, so nothing is estimated for it. */
+  /**
+   * Whether every gate is met. Separate from `estimate` on purpose: the gates
+   * decide what may be called confirmatory, not what gets computed.
+   */
+  gatesPassed: boolean;
+  /** Null only when the statistic is genuinely undefined — never because of a gate. */
   estimate:
     | null
     | {
@@ -146,27 +176,32 @@ export function computeSuspicionRanking(
   const { blockLength, acfLagUsed } = estimateBlockLength(deviationSeries);
 
   const globalGates = [
-    gate('trackedDays', facts.counts.trackedDays, GLOBAL_GATES.trackedDays),
-    gate('daysWithRaIndex', facts.counts.daysWithRaIndex, GLOBAL_GATES.daysWithRaIndex),
+    gate('trackedDays', facts.counts.trackedDays, GLOBAL_GATES.trackedDays, 'global'),
+    gate(
+      'daysWithRaIndex',
+      facts.counts.daysWithRaIndex,
+      GLOBAL_GATES.daysWithRaIndex,
+      'global'
+    ),
   ];
-  const globalOk = allPassed(globalGates);
-
   const candidates: Candidate[] = [
-    ...foodTagCandidates(facts, mealArena, dayArena, dayArenaFlareKept, globalGates, globalOk),
-    ...confounderCandidates(facts, dayArena, globalGates, globalOk),
+    ...foodTagCandidates(facts, mealArena, dayArena, dayArenaFlareKept, globalGates),
+    ...confounderCandidates(facts, dayArena, globalGates),
   ];
 
   /* --- shared bootstrap -------------------------------------------------- */
 
-  const tested = candidates.filter((c) => c.estimate !== null);
+  // The interval is computed for everything that CAN be estimated — that is
+  // what makes a provisional finding showable at all.
+  const computable = candidates.filter((c) => c.estimate !== null);
   const bootstrapSamples = new Map<string, number[]>();
-  for (const candidate of tested) bootstrapSamples.set(candidate.key, []);
+  for (const candidate of computable) bootstrapSamples.set(candidate.key, []);
 
   const bootRng = sfc32(`${options.seed}:bootstrap`);
   const resampler = options.resampler ?? stationaryBlockIndices;
   for (let b = 0; b < bootstrapResamples; b++) {
     const order = resampler(nDays, blockLength, bootRng);
-    for (const candidate of tested) {
+    for (const candidate of computable) {
       const value = candidate.estimate!.statistic(order, 0);
       if (value !== null && Number.isFinite(value)) {
         bootstrapSamples.get(candidate.key)!.push(value);
@@ -179,13 +214,44 @@ export function computeSuspicionRanking(
   const identity = new Int32Array(nDays);
   for (let i = 0; i < nDays; i++) identity[i] = i;
 
+  /*
+   * The rotation null runs ONLY for candidates whose gates are met.
+   *
+   * This is where the Benjamini-Hochberg family is kept clean. A provisional
+   * factor never gets a p-value, so it cannot enter `m`, so three dozen
+   * underpowered tests cannot triple the q-values of the ones that did earn
+   * theirs. It is also most of the compute saved.
+   */
   const rotationSamples = new Map<string, number[]>();
-  for (const candidate of tested) rotationSamples.set(candidate.key, []);
+  const forRotation = computable.filter((c) => c.gatesPassed);
+  for (const candidate of forRotation) rotationSamples.set(candidate.key, []);
 
+  /*
+   * Offsets are ENUMERATED when they fit, not sampled.
+   *
+   * There are only `nDays - 1` distinct rotations. Drawing 2000 with
+   * replacement from 199 of them meant each appeared about ten times, while
+   * `rotationPValue` divided by 2001 — so beating every rotation reported
+   * p = 0.0005 where the honest exact value is 0.005. At BH alpha 0.1 over
+   * thirty hypotheses that difference is the line between a discovery and none,
+   * so the bug could manufacture a verdict.
+   *
+   * Enumerating is also cheaper here: 199 evaluations instead of 2000.
+   */
   const rotRng = sfc32(`${options.seed}:rotation`);
-  for (let r = 0; r < rotationResamples; r++) {
-    const offset = 1 + Math.floor(rotRng() * Math.max(1, nDays - 1));
-    for (const candidate of tested) {
+  const offsets: number[] = [];
+  if (nDays - 1 <= rotationResamples) {
+    for (let offset = 1; offset < nDays; offset++) offsets.push(offset);
+  } else {
+    const seen = new Set<number>();
+    while (seen.size < rotationResamples) {
+      seen.add(1 + Math.floor(rotRng() * (nDays - 1)));
+    }
+    offsets.push(...seen);
+  }
+
+  for (const offset of offsets) {
+    for (const candidate of forRotation) {
       const value = candidate.estimate!.statistic(identity, offset);
       if (value !== null && Number.isFinite(value)) {
         rotationSamples.get(candidate.key)!.push(value);
@@ -197,22 +263,62 @@ export function computeSuspicionRanking(
 
   const draft = candidates.map((candidate) => {
     if (!candidate.estimate) {
-      return { candidate, effect: null, pValue: null };
+      return { candidate, effect: null, pValue: null, status: 'not_computable' as FindingStatus };
     }
+
     const samples = bootstrapSamples.get(candidate.key) ?? [];
     const ciLow = quantile(samples, 0.025);
     const ciHigh = quantile(samples, 0.975);
-    const pValue = rotationPValue(
-      candidate.estimate.point,
-      rotationSamples.get(candidate.key) ?? []
-    );
+
+    /*
+     * Whether an interval may be shown at all.
+     *
+     * This is the hard-won part. The day-block bootstrap resamples DAYS, and
+     * both statistics are scale-invariant within an arm — drawing one exposed
+     * day k times leaves `notable/meals` and `mean()` unchanged. An arm carried
+     * by a single day therefore contributes exactly ZERO bootstrap variance, and
+     * the interval silently reports the precision of the OTHER arm. Measured:
+     * one meal yields +89.1 pp with a 2.5 pp interval, and on null data a
+     * one-day arm excludes zero in 100 % of datasets.
+     *
+     * No threshold on interval WIDTH can separate that from a genuinely precise
+     * estimate — the pathological case is narrower. So the interval waits for
+     * the arm-support gates, whose thresholds already sit where the measured
+     * false-exclusion rate bottoms out, plus enough blocks for the percentile
+     * tails to mean anything.
+     */
+    const intervalOk =
+      intervalIsSupported(candidate.gates) &&
+      hasEnoughBlocks(nDays, blockLength) &&
+      ciLow !== null &&
+      ciHigh !== null &&
+      ciHigh - ciLow > 0 &&
+      samples.length >= MIN_BOOTSTRAP_SAMPLES;
+
+    const effect = intervalOk
+      ? {
+          kind: candidate.effectKind,
+          point: candidate.estimate.point,
+          ciLow: ciLow as number,
+          ciHigh: ciHigh as number,
+        }
+      : null;
+
+    if (!candidate.gatesPassed || !effect) {
+      // Still `provisional`, not `not_computable`: both arms exist and the counts
+      // are real and worth showing. What is missing is a defensible interval, and
+      // the row says so instead of inventing one.
+      return { candidate, effect, pValue: null, status: 'provisional' as FindingStatus };
+    }
+
     return {
       candidate,
-      effect:
-        ciLow === null || ciHigh === null
-          ? null
-          : { kind: candidate.effectKind, point: candidate.estimate.point, ciLow, ciHigh },
-      pValue,
+      effect,
+      pValue: rotationPValue(
+        candidate.estimate.point,
+        rotationSamples.get(candidate.key) ?? []
+      ),
+      status: 'confirmatory' as FindingStatus,
     };
   });
 
@@ -221,6 +327,7 @@ export function computeSuspicionRanking(
   const familySizes: Record<string, { m: number }> = {};
 
   for (const family of families) {
+    // Confirmatory only. A provisional factor has no p-value by construction.
     const inFamily = draft.filter(
       (d) => d.candidate.family === family && d.pValue !== null
     );
@@ -232,13 +339,30 @@ export function computeSuspicionRanking(
     familySizes[family] = { m };
   }
 
-  const findings: AnalysisFinding[] = draft.map(({ candidate, effect, pValue }) => {
+  const findings: AnalysisFinding[] = draft.map(({ candidate, effect, pValue, status }) => {
     const qValue = qByKey.get(candidate.key) ?? null;
-    const label = classify(candidate, effect, qValue, alpha);
-    const evidenceStrength = shrunkEffect(effect);
+    const label =
+      status === 'confirmatory' ? classify(candidate, effect, qValue, alpha) : null;
+    /*
+     * Both are zero unless the finding is confirmatory AND its statistic is
+     * signed. Two reasons, both measured.
+     *
+     * `sortScore` is monotone in 1/n, so sorting provisional rows by it inverts
+     * the ranking exactly — a one-meal artefact scores 137.8 where a genuinely
+     * strong confirmatory finding scores 0.49.
+     *
+     * And an unsigned statistic (the weekday range) is non-negative by
+     * construction, so `ciLow > 0` always holds and the omnibus took rank 1 on
+     * pure noise, from where it fed the stability streak. `signed` was consulted
+     * only by `classify`; now it gates the sort keys too.
+     */
+    const rankable = status === 'confirmatory' && candidate.signed;
+    const evidenceStrength = rankable ? shrunkEffect(effect) : 0;
     const width = effect ? effect.ciHigh - effect.ciLow : 0;
     const sortScore =
-      effect && width > 0 ? Math.abs(evidenceStrength) / (width / 3.92) : 0;
+      rankable && effect && width > 0
+        ? Math.abs(evidenceStrength) / (width / 3.92)
+        : 0;
 
     return {
       family: candidate.family,
@@ -247,8 +371,9 @@ export function computeSuspicionRanking(
       labelDe: candidate.labelDe,
       window: candidate.window,
       measurementBasis: candidate.measurementBasis,
-      status: candidate.estimate ? 'tested' : 'not_yet',
+      status,
       label,
+      reliability: reliability(candidate.gates),
       effect,
       evidenceStrength,
       sortScore,
@@ -259,27 +384,33 @@ export function computeSuspicionRanking(
         candidate.estimate?.exposed ??
         { n: 0, distinctDays: 0, runs: 0, notable: null, mean: null },
       unexposed: candidate.estimate?.unexposed ?? { n: 0, notable: null, mean: null },
-      secondary: candidate.secondary,
+      // These need MORE data than the headline estimate, not less.
+      // `probabilityOfSuperiority` from one meal against six hundred reads as
+      // "99 %"; `attributionBias` reads "100 % against 8 %" from a single meal
+      // and would raise a false recall-bias alarm against a real factor.
+      secondary: status === 'confirmatory' ? candidate.secondary : null,
       doseResponse: candidate.doseResponse,
       balance: balanceTable(days, candidate.dayExposure, usableDays(dayArena)),
       collinearWith: [],
-      attributionBias: candidate.attributionBias,
+      attributionBias: status === 'confirmatory' ? candidate.attributionBias : null,
+      // Confirmatory only, and a point rather than a fabricated interval. From
+      // two days it would read "mit Schubtagen gerechnet ergäbe sich +4,2
+      // Punkte", which is a sentence with nothing behind it.
       sensitivity:
-        candidate.sensitivityPoint === null
+        status !== 'confirmatory' || candidate.sensitivityPoint === null
           ? null
           : {
               flareKept: {
                 kind: candidate.effectKind,
                 point: candidate.sensitivityPoint,
-                ciLow: candidate.sensitivityPoint,
-                ciHigh: candidate.sensitivityPoint,
               },
             },
-      gates: candidate.gates.map(({ gate: g, have, need, passed }) => ({
+      gates: candidate.gates.map(({ gate: g, have, need, passed, scope }) => ({
         gate: g,
         have,
         need,
         passed,
+        scope,
       })),
       stability: { weeksInTopFive: 0, previousRank: null },
     };
@@ -359,8 +490,7 @@ function foodTagCandidates(
   mealArena: MealArena,
   dayArena: DayArena,
   dayArenaFlareKept: DayArena,
-  globalGates: GateResult[],
-  globalOk: boolean
+  globalGates: GateResult[]
 ): Candidate[] {
   const out: Candidate[] = [];
 
@@ -373,10 +503,10 @@ function foodTagCandidates(
       : 'rule';
 
     if (SUB_DAY_WINDOWS.includes(window)) {
-      out.push(modelACandidate(facts, mealArena, dayArena, tag, basis));
+      out.push(modelACandidate(facts, mealArena, dayArena, tag, basis, globalGates));
     } else {
       out.push(
-        modelBCandidate(facts, dayArena, dayArenaFlareKept, tag, basis, globalGates, globalOk)
+        modelBCandidate(facts, dayArena, dayArenaFlareKept, tag, basis, globalGates)
       );
     }
   }
@@ -389,7 +519,8 @@ function modelACandidate(
   arena: MealArena,
   dayArena: DayArena,
   tag: TagDefRow,
-  basis: MeasurementBasis
+  basis: MeasurementBasis,
+  globalGates: GateResult[]
 ): Candidate {
   const series = mealTagSeries(arena, tag);
   const dayExposure = dayArena.exposedByTagKey[tag.key] ?? new Uint8Array(facts.days.length);
@@ -404,13 +535,18 @@ function modelACandidate(
     : 0;
 
   const gates: GateResult[] = [
+    // The global gates belong here too. They were missing, which let a factor
+    // be called confirmatory on about thirty days of history — roughly four
+    // effectively independent blocks to hang an interval on. Adding them costs
+    // no visibility now that the gates no longer hide anything.
+    ...globalGates,
     gate('exposedMeals', observed?.exposedMeals ?? 0, MODEL_A_GATES.exposedMeals),
     gate('unexposedMeals', observed?.unexposedMeals ?? 0, MODEL_A_GATES.unexposedMeals),
     gate('exposedDistinctDays', distinctDays, MODEL_A_GATES.exposedDistinctDays),
     gate('notableReactionsTotal', notableTotal, MODEL_A_GATES.notableReactionsTotal),
   ];
 
-  const passed = allPassed(gates) && series !== null && observed !== null;
+  const computable = series !== null && observed !== null;
 
   return {
     key: tag.key,
@@ -423,8 +559,9 @@ function modelACandidate(
     signed: true,
     dayExposure,
     gates,
+    gatesPassed: allPassed(gates),
     estimate:
-      passed && series && observed
+      computable && series && observed
         ? {
             point: observed.pointPp,
             statistic: (dayOrder, offset) => {
@@ -446,7 +583,7 @@ function modelACandidate(
           }
         : null,
     secondary:
-      passed && series
+      computable && series
         ? { ...secondaryEffects(arena, series), perComponent: null }
         : null,
     attributionBias: series ? attributionBias(arena, series) : null,
@@ -461,8 +598,7 @@ function modelBCandidate(
   flareKept: DayArena,
   tag: TagDefRow,
   basis: MeasurementBasis,
-  globalGates: GateResult[],
-  globalOk: boolean
+  globalGates: GateResult[]
 ): Candidate {
   const exposed = arena.exposedByTagKey[tag.key] ?? new Uint8Array(arena.nDays);
   const identity = allDays(arena.nDays);
@@ -496,7 +632,7 @@ function modelBCandidate(
     ),
   ];
 
-  const passed = globalOk && allPassed(gates) && observed !== null;
+  const computable = observed !== null;
   const sensitivity = meanDeviationDifference(flareKept, exposed, identity, 0);
 
   return {
@@ -510,8 +646,9 @@ function modelBCandidate(
     signed: true,
     dayExposure: exposed,
     gates,
+    gatesPassed: allPassed(gates),
     estimate:
-      passed && observed
+      computable && observed
         ? {
             point: observed.point,
             statistic: (dayOrder, offset) => {
@@ -542,8 +679,7 @@ function modelBCandidate(
 function confounderCandidates(
   facts: Facts,
   arena: DayArena,
-  globalGates: GateResult[],
-  globalOk: boolean
+  globalGates: GateResult[]
 ): Candidate[] {
   const out: Candidate[] = [];
 
@@ -585,7 +721,7 @@ function confounderCandidates(
       ),
     ];
 
-    const passed = globalOk && allPassed(gates) && observed !== null;
+    const computable = observed !== null;
 
     out.push({
       key: spec.key,
@@ -598,8 +734,9 @@ function confounderCandidates(
       signed: true,
       dayExposure: masked,
       gates,
+      gatesPassed: allPassed(gates),
       estimate:
-        passed && observed
+        computable && observed
           ? {
               point: observed.point,
               statistic: (dayOrder, offset) => {
@@ -645,23 +782,22 @@ function confounderCandidates(
     signed: false,
     dayExposure: new Uint8Array(arena.nDays),
     gates: globalGates,
-    estimate: globalOk
-      ? {
-          point: range,
-          statistic: (dayOrder, offset) => {
-            const { range: value } = weekdayRange(
-              facts.days,
-              arena.outcome,
-              arena.usable,
-              dayOrder,
-              offset
-            );
-            return value;
-          },
-          exposed: { n: 0, distinctDays: 0, runs: 0, notable: null, mean: null },
-          unexposed: { n: 0, notable: null, mean: null },
-        }
-      : null,
+    gatesPassed: allPassed(globalGates),
+    estimate: {
+      point: range,
+      statistic: (dayOrder, offset) => {
+        const { range: value } = weekdayRange(
+          facts.days,
+          arena.outcome,
+          arena.usable,
+          dayOrder,
+          offset
+        );
+        return value;
+      },
+      exposed: { n: 0, distinctDays: 0, runs: 0, notable: null, mean: null },
+      unexposed: { n: 0, notable: null, mean: null },
+    },
     secondary: null,
     attributionBias: null,
     doseResponse: null,
@@ -708,13 +844,20 @@ function shrunkEffect(effect: AnalysisFinding['effect']): number {
   return 0;
 }
 
+/**
+ * The verdict, for confirmatory findings only.
+ *
+ * Returns null rather than a placeholder when there is nothing to judge: a
+ * verdict is a statement about evidence, and "no data" is not a weak verdict,
+ * it is the absence of one.
+ */
 function classify(
   candidate: Candidate,
   effect: AnalysisFinding['effect'],
   qValue: number | null,
   alpha: number
-): FindingLabel {
-  if (!candidate.estimate || !effect || qValue === null) return 'not_yet';
+): FindingLabel | null {
+  if (!candidate.estimate || !effect || qValue === null) return null;
   if (!candidate.signed) {
     // A range cannot exclude zero, so q carries the whole decision.
     if (qValue <= alpha) return 'clear';
@@ -763,7 +906,7 @@ function attachCollinearity(
 function rankWithinUnits(findings: AnalysisFinding[]): void {
   for (const kind of ['risk_difference_pp', 'mean_index_points'] as EffectKind[]) {
     const group = findings
-      .filter((f) => f.status === 'tested' && f.effect?.kind === kind)
+      .filter((f) => f.status === 'confirmatory' && f.effect?.kind === kind)
       .sort((a, b) => b.sortScore - a.sortScore || (a.qValue ?? 1) - (b.qValue ?? 1));
     group.forEach((finding, index) => {
       finding.rank = index + 1;
@@ -818,7 +961,13 @@ function doseResponseForMeals(
     level,
     n: buckets[level].n,
     notable: buckets[level].notable,
-    mean: buckets[level].n === 0 ? null : buckets[level].notable / buckets[level].n,
+    // Below the floor the bar is left empty rather than drawn from a handful of
+    // observations. A bucket at 1 of 1 would otherwise fill the bar completely
+    // and outrank a bucket of four hundred — a rank inversion by construction.
+    mean:
+      buckets[level].n < MIN_PER_ARM_FOR_DESCRIPTIVES
+        ? null
+        : buckets[level].notable / buckets[level].n,
   }));
 }
 
@@ -861,7 +1010,10 @@ function doseResponseForDays(
       level,
       n: values.length,
       notable: null,
-      mean: values.length === 0 ? null : sum / values.length,
+      mean:
+        values.length < MIN_PER_ARM_FOR_DESCRIPTIVES
+          ? null
+          : sum / values.length,
     };
   });
 }

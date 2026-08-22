@@ -12,7 +12,7 @@ function run(iso: string, ranks: Record<string, number | null>, version = 1) {
   };
 }
 
-const current = [{ key: 'gluten', rank: 1, status: 'tested' as const }];
+const current = [{ key: 'gluten', rank: 1, status: 'confirmatory' as const }];
 
 function stability(
   currentComputedAt: string,
@@ -112,20 +112,38 @@ describe('computeStability', () => {
       timeZone: TZ,
       dayStartHour: 4,
       currentComputedAt: new Date('2026-06-17T10:00:00Z'),
-      current: [{ key: 'gluten', rank: 12, status: 'tested' }],
+      current: [{ key: 'gluten', rank: 12, status: 'confirmatory' }],
       priorRuns: [run('2026-06-10T10:00:00Z', { gluten: 1 })],
     });
     expect(result.get('gluten')?.weeksInTopFive).toBe(0);
   });
 
-  it('is zero for an untested factor even if it once ranked', () => {
+  it('is zero for an uncomputable factor even if it once ranked', () => {
     const result = computeStability({
       algorithmVersion: 1,
       timeZone: TZ,
       dayStartHour: 4,
       currentComputedAt: new Date('2026-06-17T10:00:00Z'),
-      current: [{ key: 'gluten', rank: null, status: 'not_yet' }],
+      current: [{ key: 'gluten', rank: null, status: 'not_computable' }],
       priorRuns: [run('2026-06-10T10:00:00Z', { gluten: 1 })],
+    });
+    expect(result.get('gluten')?.weeksInTopFive).toBe(0);
+  });
+
+  it('is zero for a PROVISIONAL factor, however it once ranked', () => {
+    // The guard that matters now that provisional factors are visible: a thin
+    // factor must not be able to accumulate "seit 3 Wochen unter den ersten
+    // fünf". It has no rank at all, and this pins that it cannot borrow one.
+    const result = computeStability({
+      algorithmVersion: 1,
+      timeZone: TZ,
+      dayStartHour: 4,
+      currentComputedAt: new Date('2026-06-17T10:00:00Z'),
+      current: [{ key: 'gluten', rank: 1, status: 'provisional' }],
+      priorRuns: [
+        run('2026-06-10T10:00:00Z', { gluten: 1 }),
+        run('2026-06-03T10:00:00Z', { gluten: 1 }),
+      ],
     });
     expect(result.get('gluten')?.weeksInTopFive).toBe(0);
   });
