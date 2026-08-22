@@ -1,4 +1,5 @@
 import { signIn } from '@/auth';
+import { Logo } from '@/components/brand/logo';
 import { Button } from '@/components/ui/button';
 
 export const metadata = { title: 'Anmelden – Wellbeing' };
@@ -7,6 +8,7 @@ export default function SignInPage() {
   return (
     <main className="mx-auto flex min-h-dvh max-w-md flex-col justify-center gap-8 p-6">
       <div className="space-y-2">
+        <Logo size={96} priority />
         <h1 className="text-2xl font-semibold text-fg">Wellbeing</h1>
         <p className="text-muted">
           Mahlzeiten, Symptome und Medikamente festhalten – und Zusammenhänge

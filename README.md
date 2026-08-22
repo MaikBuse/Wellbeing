@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/logo-master.png" alt="Wellbeing" width="128">
+</p>
+
 # Wellbeing
 
 Ernährungs-, Symptom- und Medikations-Tracker für eine Person mit rheumatoider

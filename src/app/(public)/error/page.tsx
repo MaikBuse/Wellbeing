@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { Logo } from '@/components/brand/logo';
 import { Button } from '@/components/ui/button';
 
 export const metadata = { title: 'Anmeldung fehlgeschlagen – Wellbeing' };
@@ -33,6 +34,7 @@ export default async function AuthErrorPage({
   return (
     <main className="mx-auto flex min-h-dvh max-w-md flex-col justify-center gap-6 p-6">
       <div className="space-y-2">
+        <Logo size={72} />
         <h1 className="text-2xl font-semibold text-fg">{content.title}</h1>
         <p className="text-muted">{content.body}</p>
       </div>

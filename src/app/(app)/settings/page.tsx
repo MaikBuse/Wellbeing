@@ -1,6 +1,7 @@
 import { signOut } from '@/auth';
 import { requireUser } from '@/auth.helpers';
 import { getUserSettings } from '@/db/queries/users';
+import { Logo } from '@/components/brand/logo';
 import { Button } from '@/components/ui/button';
 import { Card, CardMeta, CardTitle } from '@/components/ui/card';
 import { InstallPrompt } from '@/components/pwa/install-prompt';
@@ -56,6 +57,18 @@ export default async function SettingsPage() {
           oder Medikation bitte nur in Absprache mit deiner Ärztin.
         </CardMeta>
       </Card>
+
+      {/*
+       * No version string here on purpose. `npm_package_version` is unset in
+       * the container (it runs `node server.js`, not an npm script), and the
+       * version that actually identifies a deployment is the image tag, which
+       * argocd-image-updater owns. A hardcoded fallback would be worse than
+       * nothing.
+       */}
+      <div className="flex flex-col items-center gap-2 pt-4 pb-2">
+        <Logo size={40} className="opacity-70" />
+        <p className="text-xs text-muted">Wellbeing</p>
+      </div>
     </main>
   );
 }

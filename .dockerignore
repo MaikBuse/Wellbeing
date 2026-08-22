@@ -9,3 +9,4 @@ test-results
 .env*
 Dockerfile
 compose.yaml
+assets

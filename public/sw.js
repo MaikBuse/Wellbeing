@@ -7,11 +7,17 @@
  *
  * Bump CACHE when this file changes.
  */
-const CACHE = 'wb-static-v1';
+// v2: the icon files were replaced with the real logo. The URLs did not
+// change, and /icons/* is served cache-first, so without this bump an already
+// installed PWA would keep the old placeholders indefinitely.
+const CACHE = 'wb-static-v2';
 const SHELL = [
   '/offline',
+  '/icons/icon-32.png',
   '/icons/icon-192.png',
   '/icons/icon-512.png',
+  // The offline page renders this one, so it has to survive going offline.
+  '/icons/logo-256.png',
   '/apple-touch-icon.png',
 ];
 
