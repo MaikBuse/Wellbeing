@@ -4,7 +4,9 @@ import { getUserSettings } from '@/db/queries/users';
 import { Logo } from '@/components/brand/logo';
 import { Button } from '@/components/ui/button';
 import { Card, CardMeta, CardTitle } from '@/components/ui/card';
+import { PageHeader } from '@/components/ui/page-header';
 import { InstallPrompt } from '@/components/pwa/install-prompt';
+import { TrackWeightSwitch } from '@/components/settings/track-weight-switch';
 
 export const metadata = { title: 'Einstellungen – Wellbeing' };
 
@@ -14,7 +16,7 @@ export default async function SettingsPage() {
 
   return (
     <main className="space-y-4 p-4">
-      <h1 className="pt-2 text-xl font-semibold text-fg">Einstellungen</h1>
+      <PageHeader title="Einstellungen" />
 
       <Card>
         <CardTitle>Angemeldet</CardTitle>
@@ -30,6 +32,13 @@ export default async function SettingsPage() {
             Abmelden
           </Button>
         </form>
+      </Card>
+
+      <Card>
+        <CardTitle>Erfassen</CardTitle>
+        <div className="mt-3">
+          <TrackWeightSwitch enabled={settings.trackWeight} />
+        </div>
       </Card>
 
       <Card>

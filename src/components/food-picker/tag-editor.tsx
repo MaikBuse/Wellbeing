@@ -7,6 +7,7 @@ import { updateFoodTags } from '@/actions/foods';
 import { Button } from '@/components/ui/button';
 import { Chip, ChipRow } from '@/components/ui/chip';
 import type { TagOption } from './food-form';
+import { SectionLabel } from '@/components/ui/section-label';
 
 /**
  * Re-tagging applies retroactively, on purpose: it is a correction of knowledge
@@ -55,9 +56,7 @@ export function TagEditor({
         if (tags.length === 0) return null;
         return (
           <div key={category} className="space-y-2">
-            <p className="text-xs font-medium uppercase tracking-wide text-muted">
-              {label}
-            </p>
+            <SectionLabel>{label}</SectionLabel>
             <ChipRow>
               {tags.map((tag) => (
                 <Chip

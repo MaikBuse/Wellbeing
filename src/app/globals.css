@@ -35,7 +35,147 @@
   --color-sev-3: #dfa3a1;
   --color-sev-4: #8e3b39;
 
-  --radius-card: 1rem;
+  /*
+   * Interaction steps. Before these existed every hover in the app was
+   * `opacity-90`, which washes the text out along with the background.
+   * --color-primary-fg on --color-primary-hover is ~9:1, so the dark-on-apricot
+   * rule survives the hover state.
+   */
+  --color-primary-tint: #fdf1e9; /* hover wash, lighter than --color-soft */
+  --color-primary-hover: #eb9a72;
+  --color-primary-press: #e08c62;
+  --color-soft-hover: #ffd6b4;
+  --color-ok-tint: #eef2f4;
+  --color-danger-tint: #fbeeed;
+
+  /* Surfaces beyond card/page. */
+  --color-bg-sunken: #f6eff1; /* inset groups, list wells */
+  --color-line-soft: #f4ebed; /* hairlines inside a surface */
+  --color-line-strong: #ddc9cd; /* emphasised dividers, timeline rail */
+  --color-veil: rgb(252 248 249 / 0.72); /* glass header over --color-bg */
+
+  /*
+   * Typography. The next/font variables (--font-fraunces / --font-source-sans)
+   * are set on <html> in layout.tsx; these tokens only wrap them with a
+   * fallback stack. The names must differ from the next/font ones or the
+   * var() reference would be self-referential.
+   */
+  --font-display: var(--font-fraunces), ui-serif, Georgia, 'Times New Roman',
+    serif;
+  --font-sans: var(--font-source-sans), ui-sans-serif, system-ui, -apple-system,
+    sans-serif;
+
+  /*
+   * Semantic sizes, deliberately NOT overriding the stock text-sm/base/xl
+   * scale — a redefinition there would silently resize every existing call
+   * site. None of these may ever land on an input: the base layer keeps a
+   * 16px floor, but a 0.6875rem eyebrow on a form control would fight it.
+   */
+  --text-display: 2.5rem;
+  --text-display--line-height: 1.05;
+  --text-display--letter-spacing: -0.02em;
+  --text-title: 1.625rem;
+  --text-title--line-height: 1.15;
+  --text-title--letter-spacing: -0.015em;
+  --text-section: 1.125rem;
+  --text-section--line-height: 1.3;
+  --text-section--letter-spacing: -0.01em;
+  --text-metric: 2rem;
+  --text-metric--line-height: 1;
+  --text-metric--letter-spacing: -0.02em;
+  --text-eyebrow: 0.6875rem;
+  --text-eyebrow--line-height: 1;
+  --text-eyebrow--letter-spacing: 0.09em;
+
+  /*
+   * Elevation, tinted with --color-primary-fg rather than black: a neutral
+   * grey shadow reads as dirt against a warm palette.
+   */
+  --shadow-hairline: 0 1px 1px rgb(74 36 16 / 0.04);
+  --shadow-raised:
+    0 1px 2px rgb(74 36 16 / 0.05), 0 3px 10px -3px rgb(74 36 16 / 0.06);
+  --shadow-float:
+    0 2px 4px -1px rgb(74 36 16 / 0.06), 0 10px 26px -8px rgb(74 36 16 / 0.1);
+  --shadow-overlay: 0 16px 48px -12px rgb(74 36 16 / 0.2);
+
+  /*
+   * Radii are named by role, not by size. Overriding Tailwind's own
+   * --radius-sm/md/xl would resize every existing `rounded-xl` in the app
+   * as a side effect.
+   */
+  --radius-control: 0.75rem;
+  --radius-card: 1.25rem;
+  --radius-sheet: 1.75rem;
+  --radius-pill: 9999px;
+
+  /* Motion. Durations stay on Tailwind's numeric scale: 120 / 200 / 320 / 450. */
+  --ease-out-soft: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-out-back: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --ease-in-out-soft: cubic-bezier(0.65, 0, 0.35, 1);
+
+  --animate-rise: rise 450ms var(--ease-out-soft) both;
+  --animate-fade-in: fade-in 300ms var(--ease-out-soft) both;
+  --animate-pop: pop 250ms var(--ease-out-back);
+  --animate-check: check 400ms var(--ease-out-soft) forwards;
+  --animate-scan: scan 2.2s var(--ease-in-out-soft) infinite;
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes pop {
+  0% {
+    transform: scale(0.9);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+/* Sweeps the scanner reticle. Fades at both ends so it does not appear to
+ * bounce off the edges. */
+@keyframes scan {
+  0% {
+    transform: translateY(0);
+    opacity: 0;
+  }
+  12% {
+    opacity: 1;
+  }
+  88% {
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(100%);
+    opacity: 0;
+  }
+}
+
+/* Draws a check/stroke on. The element sets its own dash length. */
+@keyframes check {
+  from {
+    stroke-dashoffset: var(--dash, 24);
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
 }
 
 @layer base {
@@ -47,11 +187,26 @@
   body {
     background-color: var(--color-bg);
     color: var(--color-fg);
+    /* Tailwind v4 sets no family on body; without this the app would still be
+     * on the system stack even with the fonts loaded. */
+    font-family: var(--font-sans);
     /* iOS zooms the viewport when a focused input is below 16px and never
      * zooms back out. 16px is the floor for every control in this app. */
     font-size: 16px;
     min-height: 100dvh;
     overscroll-behavior-y: contain;
+  }
+
+  h1,
+  h2,
+  h3 {
+    font-family: var(--font-display);
+    /* Fraunces ships SOFT/opsz axes; both are requested in layout.tsx. SOFT
+     * rounds the serif terminals off, which is what keeps a serif from
+     * reading as clinical here. */
+    font-variation-settings:
+      'SOFT' 40,
+      'opsz' 32;
   }
 
   input,
@@ -85,4 +240,188 @@
 @utility tap {
   min-height: 44px;
   min-width: 44px;
+}
+
+/* Mandatory on every metric. Proportional digits jitter the layout while a
+ * number counts up, and this app is mostly numbers. */
+@utility num {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum' 1;
+}
+
+/* Staggered entrance. The index arrives as an inline `--i`, so this works in
+ * server components with no client JS and no animation library. */
+@utility rise-in {
+  animation: var(--animate-rise);
+  animation-delay: calc(var(--i, 0) * 45ms);
+}
+
+/*
+ * A warm static gradient mesh for the signed-out screens.
+ *
+ * This is deliberately three CSS radial gradients rather than an animated
+ * WebGL backdrop: it costs 0 kB and no GPU loop, needs no client boundary, and
+ * a shimmering background is the wrong register for a screen someone opens when
+ * they are unwell or in a hurry.
+ */
+@utility mesh-ground {
+  background-color: var(--color-bg);
+  background-image:
+    radial-gradient(
+      60rem 40rem at 12% -8%,
+      rgb(255 225 199 / 0.85),
+      transparent 60%
+    ),
+    radial-gradient(
+      45rem 32rem at 95% 8%,
+      rgb(223 163 161 / 0.45),
+      transparent 62%
+    ),
+    radial-gradient(
+      50rem 38rem at 50% 114%,
+      rgb(184 201 211 / 0.3),
+      transparent 62%
+    );
+}
+
+/*
+ * Scroll-driven reveal: no IntersectionObserver, no client boundary. Gated on
+ * @supports so unsupporting browsers simply get the static, fully visible
+ * element rather than one stuck at opacity 0.
+ */
+@supports (animation-timeline: view()) {
+  @media (prefers-reduced-motion: no-preference) {
+    .reveal {
+      animation: rise linear both;
+      animation-timeline: view();
+      animation-range: entry 0% cover 22%;
+    }
+  }
+}
+
+/* Taps during a view transition would otherwise be swallowed by the overlay. */
+::view-transition {
+  pointer-events: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+
+  /* Pending spinners are feedback, not decoration — a frozen spinner reads as
+   * a hung app, which is worse than the motion it avoids. */
+  .animate-spin {
+    animation-duration: 1s !important;
+    animation-iteration-count: infinite !important;
+  }
+
+  ::view-transition-group(*),
+  ::view-transition-old(*),
+  ::view-transition-new(*) {
+    animation-duration: 0s !important;
+    animation-delay: 0s !important;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+ * View transitions
+ *
+ * Durations are asymmetric on purpose: old content leaves fast so it stops
+ * competing for attention, new content arrives more slowly and slightly later
+ * so there is time to register it.
+ * ------------------------------------------------------------------------- */
+
+@keyframes vt-fade {
+  from {
+    opacity: 0;
+    filter: blur(3px);
+  }
+  to {
+    opacity: 1;
+    filter: blur(0);
+  }
+}
+
+@keyframes vt-slide-x {
+  from {
+    translate: var(--slide-offset, 0);
+  }
+  to {
+    translate: 0;
+  }
+}
+
+@keyframes vt-slide-y {
+  from {
+    transform: translateY(10px);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+
+/*
+ * The header and the tab bar are the spatial anchors. If they slide with the
+ * content the whole viewport appears to move, and the user loses the one fixed
+ * reference that says "the content changed, you are still here".
+ * display:none on the old snapshot avoids a frame where both are visible.
+ */
+::view-transition-group(site-header),
+::view-transition-group(site-nav) {
+  animation: none;
+  z-index: 100;
+}
+::view-transition-old(site-header),
+::view-transition-old(site-nav) {
+  display: none;
+}
+::view-transition-new(site-header),
+::view-transition-new(site-nav) {
+  animation: none;
+}
+
+/* Forward: old content leaves to the left, new arrives from the right. */
+::view-transition-old(.nav-forward) {
+  --slide-offset: -60px;
+  animation:
+    150ms ease-in both vt-fade reverse,
+    400ms var(--ease-in-out-soft) both vt-slide-x reverse;
+}
+::view-transition-new(.nav-forward) {
+  --slide-offset: 60px;
+  animation:
+    210ms ease-out 150ms both vt-fade,
+    400ms var(--ease-in-out-soft) both vt-slide-x;
+}
+
+/* Back: mirrored. Right-to-left means "returning" in a LTR language. */
+::view-transition-old(.nav-back) {
+  --slide-offset: 60px;
+  animation:
+    150ms ease-in both vt-fade reverse,
+    400ms var(--ease-in-out-soft) both vt-slide-x reverse;
+}
+::view-transition-new(.nav-back) {
+  --slide-offset: -60px;
+  animation:
+    210ms ease-out 150ms both vt-fade,
+    400ms var(--ease-in-out-soft) both vt-slide-x;
+}
+
+/* Suspense handoff: the skeleton yields downward, real content arrives upward. */
+::view-transition-old(.skeleton-out) {
+  animation:
+    150ms ease-out both vt-fade reverse,
+    150ms ease-out both vt-slide-y reverse;
+}
+::view-transition-new(.content-in) {
+  animation:
+    210ms ease-in 150ms both vt-fade,
+    400ms ease-in both vt-slide-y;
 }

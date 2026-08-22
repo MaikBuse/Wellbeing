@@ -2,6 +2,7 @@ import { notFound } from 'next/navigation';
 import { requireUser } from '@/auth.helpers';
 import { allTagDefs, getFoodDetail } from '@/db/queries/foods';
 import { Card, CardMeta, CardTitle } from '@/components/ui/card';
+import { PageHeader } from '@/components/ui/page-header';
 import { TagEditor } from '@/components/food-picker/tag-editor';
 import { formatGrams, formatKcal } from '@/lib/nutrition';
 
@@ -33,13 +34,13 @@ export default async function FoodDetailPage({
 
   return (
     <main className="space-y-4 p-4">
-      <header className="pt-2">
-        <h1 className="text-xl font-semibold text-fg">{food.name}</h1>
-        <p className="text-sm text-muted">
-          {[food.brand, food.barcode].filter(Boolean).join(' · ') ||
-            'Selbst angelegt'}
-        </p>
-      </header>
+      <PageHeader
+        title={food.name}
+        description={
+          [food.brand, food.barcode].filter(Boolean).join(' · ') ||
+          'Selbst angelegt'
+        }
+      />
 
       <Card>
         <CardTitle>
@@ -50,11 +51,15 @@ export default async function FoodDetailPage({
             ? 'Aus Open Food Facts übernommen – die Werte sind gerundet und nicht immer korrekt.'
             : 'Selbst eingetragen.'}
         </CardMeta>
-        <dl className="mt-3 divide-y divide-line">
-          {rows.map(([label, value]) => (
-            <div key={label} className="flex justify-between py-1.5 text-sm">
+        <dl className="mt-3 divide-y divide-line-soft">
+          {rows.map(([label, value], index) => (
+            <div
+              key={label}
+              className="rise-in flex justify-between py-1.5 text-sm"
+              style={{ '--i': index } as React.CSSProperties}
+            >
               <dt className="text-muted">{label}</dt>
-              <dd className="text-fg">{value}</dd>
+              <dd className="num text-fg">{value}</dd>
             </div>
           ))}
         </dl>
@@ -68,7 +73,7 @@ export default async function FoodDetailPage({
               <li key={portion.id} className="flex justify-between">
                 <span className="text-fg">{portion.labelDe}</span>
                 <span className="text-muted">
-                  {Math.round(portion.grams)} g
+                  <span className="num">{Math.round(portion.grams)} g</span>
                   {portion.isDefault ? ' (Standard)' : ''}
                 </span>
               </li>

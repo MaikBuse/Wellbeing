@@ -105,11 +105,15 @@ export function sumNutrients(items: Nutrients[]): Nutrients {
  * about 4 kcal, and printing "0 kcal" for something that does have calories is
  * worse than printing a slightly false precision.
  */
+export function roundKcal(value: number): number {
+  if (value === 0) return 0;
+  if (value < 25) return Math.max(1, Math.round(value));
+  return Math.round(value / 10) * 10;
+}
+
 export function formatKcal(value: number | null): string {
   if (value === null) return '–';
-  if (value === 0) return '0 kcal';
-  if (value < 25) return `${Math.max(1, Math.round(value))} kcal`;
-  return `${Math.round(value / 10) * 10} kcal`;
+  return `${roundKcal(value)} kcal`;
 }
 
 export function formatGrams(value: number | null): string {

@@ -1,5 +1,3 @@
-import Link from 'next/link';
-import { ScanLine } from 'lucide-react';
 import { requireUserWithSettings } from '@/auth.helpers';
 import {
   allSymptomTypes,
@@ -16,14 +14,17 @@ import {
   intakesForDay,
 } from '@/db/queries/medication';
 import { expandDueDoses } from '@/services/medication/schedule';
-import { Button } from '@/components/ui/button';
 import { Card, CardHeader, CardMeta, CardTitle } from '@/components/ui/card';
 import { Disclosure } from '@/components/ui/disclosure';
+import { SectionLabel } from '@/components/ui/section-label';
+import { SeverityBadge } from '@/components/ui/severity-badge';
 import { DailyLogForm } from '@/components/daily/daily-log-form';
-import { MealSlotCard } from '@/components/meal/meal-slot-card';
+import { DayHeader } from '@/components/day/day-header';
+import { DaySummary } from '@/components/day/day-summary';
+import { MealSlotSection } from '@/components/meal/meal-slot-section';
 import { DueDoses, type DueDoseView } from '@/components/medication/due-doses';
 import { ReactionSheet } from '@/components/symptom/reaction-sheet';
-import { formatKcal, sumNutrients } from '@/lib/nutrition';
+import { sumNutrients } from '@/lib/nutrition';
 import {
   MEAL_SLOT_ORDER,
   ONSET_LAG_LABELS,
@@ -31,7 +32,7 @@ import {
   type MealSlotKey,
   type OnsetLagKey,
 } from '@/lib/scales';
-import { formatLogDateLong, todayLogDate, type LogDate } from '@/lib/time';
+import { todayLogDate, type LogDate } from '@/lib/time';
 
 /**
  * The whole app is really this one screen. Everything else is secondary.
@@ -135,81 +136,40 @@ export async function DayView({ logDate }: { logDate: LogDate }) {
   );
 
   return (
-    <main className="space-y-4 p-4">
-      <header className="flex items-start justify-between gap-3 pt-2">
-        <div>
-          <h1 className="text-xl font-semibold text-fg">
-            {isToday ? 'Heute' : formatLogDateLong(logDate)}
-          </h1>
-          <p className="text-sm text-muted">
-            {isToday ? formatLogDateLong(logDate) : null}
-            {allItems.length > 0
-              ? `${isToday ? ' · ' : ''}${formatKcal(dayTotals.kcal)} geschätzt`
-              : null}
-          </p>
-        </div>
-        <Button asChild variant="soft" size="sm">
-          <Link href="/scan">
-            <ScanLine aria-hidden className="size-4" />
-            Scannen
-          </Link>
-        </Button>
-      </header>
+    <main className="space-y-6 p-4">
+      <DayHeader logDate={logDate} isToday={isToday} />
 
-      {MEAL_SLOT_ORDER.map((slot, index) => (
-        <MealSlotCard
-          key={slot}
-          slot={slot}
-          logDate={logDate}
-          meals={meals.filter((meal) => meal.slot === slot)}
-          frequent={frequentBySlot[slot] ?? []}
-          recent={recent}
-          symptomTypes={symptomTypes}
-          defaultLags={defaultLags}
-          // Snacks and drinks stay collapsed until used: five expanded slots
-          // would push the daily check far below the fold.
-          compact={slot === 'snack' || slot === 'drink'}
-          showEmptyHint={index === 0 && recent.length === 0}
-        />
-      ))}
+      <DaySummary
+        totals={dayTotals}
+        itemCount={allItems.length}
+        jointPain={dailyLog?.jointPain ?? null}
+        fatigue={dailyLog?.fatigue ?? null}
+        wellbeing={dailyLog?.wellbeing ?? null}
+        isFlare={dailyLog?.isFlare ?? false}
+      />
 
-      <Card>
-        <CardHeader>
-          <div>
-            <CardTitle>Beschwerden ohne Mahlzeit</CardTitle>
-            <CardMeta>
-              Zum Beispiel nachts oder morgens – gehört zu keinem Essen.
-            </CardMeta>
-          </div>
-        </CardHeader>
-
-        {standalone.length > 0 ? (
-          <ul className="mb-3 space-y-1.5 text-sm">
-            {standalone.map((entry) => (
-              <li
-                key={entry.id}
-                className="rounded-xl bg-soft/60 px-3 py-2 text-fg"
-              >
-                <span className="font-medium">{entry.severity}</span>
-                {' · '}
-                {entry.symptoms.length > 0
-                  ? entry.symptoms.join(', ')
-                  : 'Beschwerden'}
-                {entry.onsetLag ? (
-                  <span className="text-muted">
-                    {' · '}
-                    {ONSET_LAG_LABELS[entry.onsetLag as OnsetLagKey]}
-                  </span>
-                ) : null}
-              </li>
-            ))}
-          </ul>
-        ) : null}
-
-        <Disclosure label="Beschwerden erfassen">
-          <ReactionSheet mealId={null} symptomTypes={symptomTypes} />
-        </Disclosure>
-      </Card>
+      <section>
+        <SectionLabel className="mb-3">Mahlzeiten</SectionLabel>
+        <ol>
+          {MEAL_SLOT_ORDER.map((slot, index) => (
+            <MealSlotSection
+              key={slot}
+              slot={slot}
+              logDate={logDate}
+              index={index}
+              meals={meals.filter((meal) => meal.slot === slot)}
+              frequent={frequentBySlot[slot] ?? []}
+              recent={recent}
+              symptomTypes={symptomTypes}
+              defaultLags={defaultLags}
+              // Snacks and drinks stay collapsed until used: five expanded
+              // slots would push the daily check far below the fold.
+              compact={slot === 'snack' || slot === 'drink'}
+              showEmptyHint={index === 0 && recent.length === 0}
+            />
+          ))}
+        </ol>
+      </section>
 
       <DueDoses
         doses={dueDoses}
@@ -245,6 +205,43 @@ export async function DayView({ logDate }: { logDate: LogDate }) {
         selectedJoints={selectedJoints.map((joint) => joint.jointKey)}
         trackWeight={settings.trackWeight}
       />
+
+      <Card variant="sunken">
+        <CardHeader>
+          <CardTitle>Beschwerden ohne Mahlzeit</CardTitle>
+          <CardMeta>
+            Zum Beispiel nachts oder morgens – gehört zu keinem Essen.
+          </CardMeta>
+        </CardHeader>
+
+        {standalone.length > 0 ? (
+          <ul className="mb-3 space-y-1.5 text-sm">
+            {standalone.map((entry, index) => (
+              <li
+                key={entry.id}
+                className="rise-in flex flex-wrap items-center gap-2 rounded-control bg-card px-3 py-2"
+                style={{ '--i': index } as React.CSSProperties}
+              >
+                <SeverityBadge value={entry.severity} />
+                <span className="text-fg">
+                  {entry.symptoms.length > 0
+                    ? entry.symptoms.join(', ')
+                    : 'Beschwerden'}
+                </span>
+                {entry.onsetLag ? (
+                  <span className="text-muted">
+                    · {ONSET_LAG_LABELS[entry.onsetLag as OnsetLagKey]}
+                  </span>
+                ) : null}
+              </li>
+            ))}
+          </ul>
+        ) : null}
+
+        <Disclosure label="Beschwerden erfassen">
+          <ReactionSheet mealId={null} symptomTypes={symptomTypes} />
+        </Disclosure>
+      </Card>
     </main>
   );
 }

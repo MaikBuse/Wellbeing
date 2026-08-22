@@ -16,6 +16,7 @@ import {
   type OnsetLagKey,
 } from '@/lib/scales';
 import { RED_FLAG_NOTICE } from '@/db/seed/symptomTypes';
+import { SectionLabel } from '@/components/ui/section-label';
 
 export type SymptomTypeOption = {
   id: string;
@@ -128,9 +129,7 @@ export function ReactionSheet({
             if (types.length === 0) return null;
             return (
               <div key={group} className="space-y-1.5">
-                <p className="text-xs font-medium uppercase tracking-wide text-muted">
-                  {SYMPTOM_GROUP_LABELS[group]}
-                </p>
+                <SectionLabel>{SYMPTOM_GROUP_LABELS[group]}</SectionLabel>
                 <ChipRow>
                   {types.map((type) => (
                     <Chip
@@ -151,7 +150,7 @@ export function ReactionSheet({
       {redFlagSelected ? (
         <p
           role="alert"
-          className="rounded-xl border border-danger/40 bg-danger/10 p-3 text-sm font-medium text-danger"
+          className="rounded-control border border-danger/40 bg-danger-tint p-3 text-sm font-medium text-danger"
         >
           {RED_FLAG_NOTICE}
         </p>

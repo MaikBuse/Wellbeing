@@ -132,7 +132,7 @@ function TagGroup({ label, tags }: { label: string; tags: TagOption[] }) {
   return (
     <fieldset className="space-y-2">
       {label ? (
-        <legend className="text-xs font-medium uppercase tracking-wide text-muted">
+        <legend className="text-eyebrow font-semibold uppercase text-muted">
           {label}
         </legend>
       ) : null}

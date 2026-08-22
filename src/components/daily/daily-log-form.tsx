@@ -7,7 +7,8 @@ import { saveDailyLogField, toggleJoint } from '@/actions/dailyLog';
 import { Card, CardHeader, CardMeta, CardTitle } from '@/components/ui/card';
 import { Chip, ChipRow } from '@/components/ui/chip';
 import { Disclosure } from '@/components/ui/disclosure';
-import { Field, Input } from '@/components/ui/field';
+import { Field, Input, Textarea } from '@/components/ui/field';
+import { ProgressRing } from '@/components/ui/progress-ring';
 import { ScoreChips } from '@/components/ui/score-chips';
 import {
   BRISTOL_SCALE,
@@ -96,17 +97,21 @@ export function DailyLogForm({
 
   return (
     <Card>
-      <CardHeader>
-        <div>
-          <CardTitle>Tagescheck</CardTitle>
-          <CardMeta>{filled} von 5 Kernwerten erfasst</CardMeta>
-        </div>
-        {saved ? (
-          <span className="flex items-center gap-1 text-xs text-ok">
-            <Check aria-hidden className="size-3.5" />
-            gespeichert
-          </span>
-        ) : null}
+      <CardHeader
+        action={
+          <div className="flex items-center gap-2">
+            {saved ? (
+              <span className="animate-fade-in flex items-center gap-1 text-xs text-ok">
+                <Check aria-hidden className="size-3.5" />
+                gespeichert
+              </span>
+            ) : null}
+            <ProgressRing value={filled} max={5} label="Kernwerte erfasst" />
+          </div>
+        }
+      >
+        <CardTitle>Tagescheck</CardTitle>
+        <CardMeta>{filled} von 5 Kernwerten erfasst</CardMeta>
       </CardHeader>
 
       <div className="space-y-5">
@@ -144,6 +149,15 @@ export function DailyLogForm({
           />
         </Field>
 
+        <Field label="Allgemeines Befinden" htmlFor="wellbeing">
+          <ScoreChips
+            name="wellbeing"
+            value={values.wellbeing}
+            onChange={(value) => save('wellbeing', value?.toString() ?? '')}
+            labelledBy="wellbeing-label"
+          />
+        </Field>
+
         {/* The single most valuable field for the later analysis: flares last
             weeks, and without marking them every food eaten during one looks
             guilty. */}
@@ -152,10 +166,11 @@ export function DailyLogForm({
           onClick={() => save('isFlare', !values.isFlare)}
           aria-pressed={values.isFlare}
           className={cn(
-            'flex w-full items-center justify-between gap-3 rounded-xl border p-3 text-left transition-colors',
+            'flex w-full items-center justify-between gap-3 rounded-control border p-3 text-left',
+            'transition-[background-color,border-color,transform] duration-120 ease-out-soft active:scale-[0.99]',
             values.isFlare
-              ? 'border-danger bg-danger/10'
-              : 'border-line bg-card hover:bg-soft'
+              ? 'border-danger bg-danger-tint'
+              : 'border-line bg-card hover:border-line-strong hover:bg-primary-tint'
           )}
         >
           <span className="flex items-center gap-2">
@@ -184,7 +199,9 @@ export function DailyLogForm({
             {values.isFlare ? 'ja' : 'nein'}
           </span>
         </button>
+      </div>
 
+      <div className="mt-4 divide-y divide-line-soft border-t border-line-soft">
         <Disclosure label="Betroffene Gelenke">
           <ChipRow>
             {joints.map((joint) => (
@@ -294,6 +311,21 @@ export function DailyLogForm({
               </Field>
             ) : null}
           </div>
+        </Disclosure>
+
+        <Disclosure label="Notiz zum Tag">
+          <Field
+            label="Notiz"
+            htmlFor="note"
+            hint="Alles, was kein Feld hat – Reisen, Infekte, ein neues Medikament."
+          >
+            <Textarea
+              id="note"
+              defaultValue={values.note ?? ''}
+              onBlur={(event) => save('note', event.target.value)}
+              placeholder="Optional"
+            />
+          </Field>
         </Disclosure>
       </div>
     </Card>

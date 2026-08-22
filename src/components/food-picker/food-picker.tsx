@@ -9,6 +9,7 @@ import { Chip, ChipRow } from '@/components/ui/chip';
 import { Input } from '@/components/ui/field';
 import type { FoodListItem } from '@/db/queries/foods';
 import type { MealSlotKey } from '@/lib/scales';
+import { SectionLabel } from '@/components/ui/section-label';
 
 /**
  * The three-tap path: tap the slot, tap a chip, done.
@@ -121,9 +122,7 @@ export function FoodPicker({
 
       {shown.length > 0 ? (
         <div className="space-y-2">
-          <p className="text-xs font-medium uppercase tracking-wide text-muted">
-            {heading}
-          </p>
+          <SectionLabel>{heading}</SectionLabel>
           <ChipRow>
             {shown.map((food) => (
               <Chip

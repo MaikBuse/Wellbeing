@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   formatKcal,
+  roundKcal,
   nutrientsForGrams,
   parseGermanNumber,
   resolveGrams,
@@ -82,6 +83,18 @@ describe('formatKcal', () => {
   it('shows a true zero as zero and a missing value as a dash', () => {
     expect(formatKcal(0)).toBe('0 kcal');
     expect(formatKcal(null)).toBe('–');
+  });
+});
+
+describe('roundKcal', () => {
+  it('returns the same number formatKcal prints, so a counter can animate to it', () => {
+    // The animated hero figure counts up to this value while the label next to
+    // it comes from formatKcal — they must not disagree.
+    expect(roundKcal(87.5)).toBe(90);
+    expect(roundKcal(372)).toBe(370);
+    expect(roundKcal(4)).toBe(4);
+    expect(roundKcal(0.4)).toBe(1);
+    expect(roundKcal(0)).toBe(0);
   });
 });
 

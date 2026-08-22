@@ -4,6 +4,9 @@ import { requireUser } from '@/auth.helpers';
 import { listMedications } from '@/db/queries/medication';
 import { Button } from '@/components/ui/button';
 import { Card, CardMeta, CardTitle } from '@/components/ui/card';
+import { EmptyState } from '@/components/ui/empty-state';
+import { PageHeader } from '@/components/ui/page-header';
+import { SectionLabel } from '@/components/ui/section-label';
 import {
   DOSE_UNIT_LABELS,
   MED_CATEGORY_LABELS,
@@ -54,26 +57,36 @@ export default async function MedicationsPage() {
 
   return (
     <main className="space-y-4 p-4">
-      <header className="flex items-center justify-between gap-2 pt-2">
-        <h1 className="text-xl font-semibold text-fg">Medikamente</h1>
-        <Button asChild size="sm">
-          <Link href="/medications/new">
-            <Plus aria-hidden className="size-4" />
-            Neu
-          </Link>
-        </Button>
-      </header>
+      <PageHeader
+        title="Medikamente"
+        action={
+          <Button asChild size="sm">
+            <Link href="/medications/new">
+              <Plus aria-hidden className="size-4" />
+              Neu
+            </Link>
+          </Button>
+        }
+      />
 
       {active.length === 0 ? (
-        <Card>
-          <CardMeta>
-            Noch keine Medikamente angelegt. Nach dem Anlegen erscheinen die
-            fälligen Dosen automatisch auf dem Heute-Screen.
-          </CardMeta>
-        </Card>
+        <EmptyState
+          icon={<Plus aria-hidden className="size-7" />}
+          title="Noch keine Medikamente"
+          description="Nach dem Anlegen erscheinen die fälligen Dosen automatisch auf dem Heute-Screen."
+          action={
+            <Button asChild variant="outline" size="sm">
+              <Link href="/medications/new">Medikament anlegen</Link>
+            </Button>
+          }
+        />
       ) : (
-        active.map((row) => (
-          <Card key={`${row.id}-${row.scheduleId ?? 'none'}`}>
+        active.map((row, index) => (
+          <Card
+            key={`${row.id}-${row.scheduleId ?? 'none'}`}
+            className="rise-in"
+            style={{ '--i': index } as React.CSSProperties}
+          >
             <CardTitle>{row.name}</CardTitle>
             <CardMeta className="mt-1">
               {[row.activeSubstance, MED_CATEGORY_LABELS[row.category]]
@@ -86,8 +99,8 @@ export default async function MedicationsPage() {
       )}
 
       {stopped.length > 0 ? (
-        <Card>
-          <CardTitle>Abgesetzt</CardTitle>
+        <Card variant="sunken">
+          <SectionLabel>Abgesetzt</SectionLabel>
           <ul className="mt-2 space-y-1 text-sm text-muted">
             {stopped.map((row) => (
               <li key={`${row.id}-stopped`}>

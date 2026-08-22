@@ -65,7 +65,7 @@ export function BarcodeScanner() {
           Die Kamera funktioniert nur über HTTPS.
         </CardMeta>
 
-        <div className="mt-3 overflow-hidden rounded-xl bg-fg/5">
+        <div className="relative mt-3 overflow-hidden rounded-control bg-fg/5">
           <video
             ref={videoRef}
             // Without playsInline iOS goes fullscreen-native and the overlay
@@ -75,6 +75,34 @@ export function BarcodeScanner() {
             autoPlay
             className="aspect-[4/3] w-full object-cover"
           />
+
+          {/* The hint below says "hold the barcode in the image area", so there
+            * had better be a visible area to hold it in. */}
+          {state.status === 'scanning' ? (
+            <div aria-hidden className="pointer-events-none absolute inset-0">
+              <div
+                className="absolute left-1/2 top-1/2 h-[38%] w-[78%] -translate-x-1/2 -translate-y-1/2 overflow-hidden rounded-sm"
+                // The huge spread dims everything outside the window in one
+                // declaration; the parent's overflow-hidden clips it.
+                style={{ boxShadow: '0 0 0 9999px rgb(42 34 36 / 0.38)' }}
+              >
+                <span className="animate-scan absolute inset-x-0 top-0 h-px bg-primary shadow-[0_0_8px_rgb(241_168_133)]" />
+              </div>
+
+              {/* Corner brackets, drawn outside the dimmed window. */}
+              {[
+                'left-[11%] top-[31%] border-l-2 border-t-2 rounded-tl-sm',
+                'right-[11%] top-[31%] border-r-2 border-t-2 rounded-tr-sm',
+                'left-[11%] bottom-[31%] border-l-2 border-b-2 rounded-bl-sm',
+                'right-[11%] bottom-[31%] border-r-2 border-b-2 rounded-br-sm',
+              ].map((position) => (
+                <span
+                  key={position}
+                  className={`absolute size-6 border-primary ${position}`}
+                />
+              ))}
+            </div>
+          ) : null}
         </div>
 
         <div className="mt-3 flex gap-2">

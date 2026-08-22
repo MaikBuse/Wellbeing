@@ -17,10 +17,12 @@ export function Chip({
       type="button"
       aria-pressed={selected}
       className={cn(
-        'inline-flex min-h-11 items-center gap-1.5 rounded-full border px-3.5 text-sm font-medium transition-colors',
+        'inline-flex min-h-11 items-center gap-1.5 rounded-pill border px-3.5 text-sm font-medium',
+        'transition-[background-color,border-color,color,transform] duration-120 ease-out-soft',
+        'active:scale-[0.96]',
         selected
-          ? 'border-primary bg-primary text-primary-fg'
-          : 'border-line bg-card text-fg hover:bg-soft',
+          ? 'animate-pop border-primary-strong bg-primary text-primary-fg'
+          : 'border-line bg-card text-fg hover:border-line-strong hover:bg-primary-tint',
         'disabled:pointer-events-none disabled:opacity-50',
         className
       )}
