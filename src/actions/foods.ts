@@ -1,0 +1,407 @@
+'use server';
+
+import { and, eq, isNull, sql } from 'drizzle-orm';
+import { revalidatePath } from 'next/cache';
+import { requireUserForAction } from '@/auth.helpers';
+import { db } from '@/db';
+import {
+  foodPortions,
+  foodTagDefs,
+  foodTags,
+  foods,
+  offProducts,
+  tagRules,
+} from '@/db/schema';
+import {
+  lookupOffProduct,
+  parseServingGrams,
+  type OffProductData,
+} from '@/lib/off';
+import { searchFoods } from '@/db/queries/foods';
+import {
+  deriveTags,
+  tagInputFromName,
+  tagInputFromOff,
+  type TagRule,
+} from '@/services/off/tagRules';
+import {
+  barcodeSchema,
+  createFoodSchema,
+  updateFoodTagsSchema,
+} from '@/lib/validation/food';
+import type { ActionResult } from './meals';
+
+async function loadRules(): Promise<TagRule[]> {
+  const rows = await db
+    .select({
+      tagId: tagRules.tagId,
+      matchType: tagRules.matchType,
+      pattern: tagRules.pattern,
+      confidence: tagRules.confidence,
+      isNegative: tagRules.isNegative,
+    })
+    .from(tagRules)
+    .where(eq(tagRules.enabled, true));
+  return rows;
+}
+
+async function applyDerivedTags(
+  foodId: string,
+  derived: ReturnType<typeof deriveTags>
+) {
+  if (derived.length === 0) return;
+  await db
+    .insert(foodTags)
+    .values(
+      derived.map((t) => ({
+        foodId,
+        tagId: t.tagId,
+        source: t.source,
+        confidence: t.confidence,
+      }))
+    )
+    // A manual tag always wins, so never overwrite an existing assignment.
+    .onConflictDoNothing();
+}
+
+export async function searchFoodsAction(query: string) {
+  const user = await requireUserForAction();
+  if (query.trim().length < 2) return [];
+  return searchFoods(user.id, query);
+}
+
+/**
+ * Barcode lookup: own library first, then the shared OFF cache, and only then
+ * the network. Repeat scans are instant, OFF stays well under its rate limit,
+ * and the app keeps working when OFF is down.
+ */
+export async function lookupBarcode(
+  barcode: string
+): Promise<
+  | { kind: 'existing'; foodId: string; name: string }
+  | { kind: 'prefilled'; product: OffProductData }
+  | { kind: 'not_found' }
+  | { kind: 'error'; message: string }
+> {
+  const user = await requireUserForAction();
+  const parsed = barcodeSchema.safeParse({ barcode });
+  if (!parsed.success) {
+    return { kind: 'error', message: 'Ungültiger Barcode' };
+  }
+  const code = parsed.data.barcode;
+
+  const [own] = await db
+    .select({ id: foods.id, name: foods.name })
+    .from(foods)
+    .where(and(eq(foods.userId, user.id), eq(foods.barcode, code)))
+    .limit(1);
+  if (own) return { kind: 'existing', foodId: own.id, name: own.name };
+
+  const [cached] = await db
+    .select()
+    .from(offProducts)
+    .where(eq(offProducts.barcode, code))
+    .limit(1);
+
+  if (cached) {
+    return {
+      kind: 'prefilled',
+      product: {
+        barcode: cached.barcode,
+        productName: cached.productName,
+        brands: cached.brands,
+        quantity: cached.quantity,
+        servingSize: cached.servingSize,
+        categoriesTags: cached.categoriesTags ?? [],
+        allergensTags: cached.allergensTags ?? [],
+        tracesTags: cached.tracesTags ?? [],
+        additivesTags: cached.additivesTags ?? [],
+        ingredientsText: cached.ingredientsText,
+        novaGroup: cached.novaGroup,
+        kcal100: cached.kcal100,
+        protein100: cached.protein100,
+        fat100: cached.fat100,
+        satFat100: cached.satFat100,
+        carbs100: cached.carbs100,
+        sugar100: cached.sugar100,
+        fiber100: cached.fiber100,
+        salt100: cached.salt100,
+        raw: cached.raw ?? {},
+        needsManualNutrients: cached.kcal100 === null,
+      },
+    };
+  }
+
+  const result = await lookupOffProduct(code);
+  if (result.kind === 'not_found') return { kind: 'not_found' };
+  if (result.kind === 'error') {
+    const messages = {
+      timeout: 'Open Food Facts antwortet nicht. Bitte manuell eintragen.',
+      upstream: 'Open Food Facts ist gerade nicht erreichbar.',
+      invalid: 'Die Antwort von Open Food Facts war unbrauchbar.',
+    };
+    return { kind: 'error', message: messages[result.reason] };
+  }
+
+  const p = result.product;
+  await db
+    .insert(offProducts)
+    .values({
+      barcode: p.barcode,
+      productName: p.productName,
+      brands: p.brands,
+      quantity: p.quantity,
+      servingSize: p.servingSize,
+      categoriesTags: p.categoriesTags,
+      allergensTags: p.allergensTags,
+      tracesTags: p.tracesTags,
+      additivesTags: p.additivesTags,
+      ingredientsText: p.ingredientsText,
+      novaGroup: p.novaGroup,
+      kcal100: p.kcal100,
+      protein100: p.protein100,
+      fat100: p.fat100,
+      satFat100: p.satFat100,
+      carbs100: p.carbs100,
+      sugar100: p.sugar100,
+      fiber100: p.fiber100,
+      salt100: p.salt100,
+      raw: p.raw,
+    })
+    .onConflictDoNothing();
+
+  return { kind: 'prefilled', product: p };
+}
+
+/** Creates a food from an OFF hit, tags it from the rules, and returns its id. */
+export async function createFoodFromOff(
+  barcode: string
+): Promise<{ ok: true; foodId: string } | { ok: false; error: string }> {
+  const user = await requireUserForAction();
+  const lookup = await lookupBarcode(barcode);
+  if (lookup.kind === 'existing') return { ok: true, foodId: lookup.foodId };
+  if (lookup.kind !== 'prefilled') {
+    return {
+      ok: false,
+      error:
+        lookup.kind === 'error'
+          ? lookup.message
+          : 'Dieses Produkt kennt Open Food Facts nicht. Du kannst es selbst anlegen.',
+    };
+  }
+
+  const p = lookup.product;
+  const [offRow] = await db
+    .select({ id: offProducts.id })
+    .from(offProducts)
+    .where(eq(offProducts.barcode, p.barcode))
+    .limit(1);
+
+  const servingGrams = parseServingGrams(p.servingSize);
+  const [food] = await db
+    .insert(foods)
+    .values({
+      userId: user.id,
+      name: p.productName ?? `Produkt ${p.barcode}`,
+      brand: p.brands,
+      source: 'off',
+      offProductId: offRow?.id ?? null,
+      barcode: p.barcode,
+      kcal100: p.kcal100,
+      protein100: p.protein100,
+      fat100: p.fat100,
+      satFat100: p.satFat100,
+      carbs100: p.carbs100,
+      sugar100: p.sugar100,
+      fiber100: p.fiber100,
+      salt100: p.salt100,
+      defaultPortionGrams: servingGrams,
+    })
+    .returning({ id: foods.id });
+
+  if (servingGrams) {
+    await db.insert(foodPortions).values({
+      foodId: food.id,
+      labelDe: 'Portion',
+      grams: servingGrams,
+      isDefault: true,
+    });
+  }
+
+  const rules = await loadRules();
+  await applyDerivedTags(food.id, deriveTags(tagInputFromOff(p), rules));
+
+  revalidatePath('/foods');
+  return { ok: true, foodId: food.id };
+}
+
+export async function createFood(
+  formData: FormData
+): Promise<{ ok: true; foodId: string } | { ok: false; error: string }> {
+  const user = await requireUserForAction();
+  const parsed = createFoodSchema.safeParse({
+    name: formData.get('name'),
+    brand: formData.get('brand') ?? '',
+    barcode: formData.get('barcode') ?? '',
+    isBeverage: formData.get('isBeverage') ?? undefined,
+    kcal100: formData.get('kcal100') ?? '',
+    protein100: formData.get('protein100') ?? '',
+    fat100: formData.get('fat100') ?? '',
+    carbs100: formData.get('carbs100') ?? '',
+    sugar100: formData.get('sugar100') ?? '',
+    fiber100: formData.get('fiber100') ?? '',
+    salt100: formData.get('salt100') ?? '',
+    defaultPortionGrams: formData.get('defaultPortionGrams') ?? '',
+    tagIds: formData.getAll('tagIds').map(String),
+  });
+  if (!parsed.success) {
+    return {
+      ok: false,
+      error: parsed.error.issues[0]?.message ?? 'Eingabe unvollständig',
+    };
+  }
+  const input = parsed.data;
+
+  try {
+    const [food] = await db
+      .insert(foods)
+      .values({
+        userId: user.id,
+        name: input.name,
+        brand: input.brand ?? null,
+        source: 'manual',
+        barcode: input.barcode ?? null,
+        basisUnit: input.isBeverage ? 'ml' : 'g',
+        isBeverage: input.isBeverage ?? false,
+        kcal100: input.kcal100 ?? null,
+        protein100: input.protein100 ?? null,
+        fat100: input.fat100 ?? null,
+        carbs100: input.carbs100 ?? null,
+        sugar100: input.sugar100 ?? null,
+        fiber100: input.fiber100 ?? null,
+        salt100: input.salt100 ?? null,
+        defaultPortionGrams: input.defaultPortionGrams ?? null,
+      })
+      .returning({ id: foods.id });
+
+    if (input.tagIds && input.tagIds.length > 0) {
+      await db.insert(foodTags).values(
+        input.tagIds.map((tagId) => ({
+          foodId: food.id,
+          tagId,
+          source: 'manual' as const,
+          confidence: 'certain' as const,
+        }))
+      );
+    } else {
+      // Nothing chosen: at least run the name through the rules so the food
+      // is not completely untagged and invisible to the analysis.
+      const rules = await loadRules();
+      await applyDerivedTags(
+        food.id,
+        deriveTags(tagInputFromName(input.name), rules)
+      );
+    }
+
+    revalidatePath('/foods');
+    return { ok: true, foodId: food.id };
+  } catch (error) {
+    const message = String(error);
+    if (message.includes('food_user_name_uq')) {
+      return { ok: false, error: 'Dieses Lebensmittel gibt es schon' };
+    }
+    return { ok: false, error: 'Speichern fehlgeschlagen' };
+  }
+}
+
+/**
+ * Manual tag edits replace the rule-derived set for that food and are marked
+ * as manual, so a later rule change never overwrites them.
+ */
+export async function updateFoodTags(input: {
+  foodId: string;
+  tagIds: string[];
+}): Promise<ActionResult> {
+  const user = await requireUserForAction();
+  const parsed = updateFoodTagsSchema.safeParse(input);
+  if (!parsed.success) return { ok: false, error: 'Eingabe ungültig' };
+
+  const [food] = await db
+    .select({ id: foods.id })
+    .from(foods)
+    .where(and(eq(foods.id, parsed.data.foodId), eq(foods.userId, user.id)))
+    .limit(1);
+  if (!food) return { ok: false, error: 'Lebensmittel nicht gefunden' };
+
+  await db.transaction(async (tx) => {
+    await tx.delete(foodTags).where(eq(foodTags.foodId, parsed.data.foodId));
+    if (parsed.data.tagIds.length > 0) {
+      await tx.insert(foodTags).values(
+        parsed.data.tagIds.map((tagId) => ({
+          foodId: parsed.data.foodId,
+          tagId,
+          source: 'manual' as const,
+          confidence: 'certain' as const,
+        }))
+      );
+    }
+  });
+
+  revalidatePath('/foods');
+  revalidatePath('/');
+  return { ok: true };
+}
+
+/**
+ * Updating a nutrient marks the field as overridden, so a later OFF refresh
+ * copies everything except the fields she corrected herself.
+ */
+export async function overrideFoodNutrient(input: {
+  foodId: string;
+  field:
+    | 'kcal100'
+    | 'protein100'
+    | 'fat100'
+    | 'carbs100'
+    | 'sugar100'
+    | 'fiber100'
+    | 'salt100'
+    | 'defaultPortionGrams';
+  value: number | null;
+}): Promise<ActionResult> {
+  const user = await requireUserForAction();
+  const [food] = await db
+    .select({ id: foods.id })
+    .from(foods)
+    .where(and(eq(foods.id, input.foodId), eq(foods.userId, user.id)))
+    .limit(1);
+  if (!food) return { ok: false, error: 'Lebensmittel nicht gefunden' };
+
+  await db
+    .update(foods)
+    .set({
+      [input.field]: input.value,
+      overriddenFields: sql`(
+        select array_agg(distinct f)
+        from unnest(array_append(${foods.overriddenFields}, ${input.field})) as f
+      )`,
+    })
+    .where(eq(foods.id, input.foodId));
+
+  revalidatePath('/foods');
+  return { ok: true };
+}
+
+export async function listAnalysedTags() {
+  await requireUserForAction();
+  return db
+    .select({
+      id: foodTagDefs.id,
+      key: foodTagDefs.key,
+      labelDe: foodTagDefs.labelDe,
+      category: foodTagDefs.category,
+    })
+    .from(foodTagDefs)
+    .where(isNull(foodTagDefs.userId))
+    .orderBy(foodTagDefs.sortOrder);
+}

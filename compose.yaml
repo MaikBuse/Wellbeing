@@ -1,0 +1,25 @@
+# Local development database only. Next itself runs on the host via
+# `npm run dev` so Turbopack HMR and .env.local work normally.
+#
+# Official Postgres 17 image: same major version as the in-cluster CNPG
+# instance. The CNPG image itself cannot be used here — its entrypoint is
+# `bash` because it is built to be driven by the operator, not by compose.
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: wellbeing
+      POSTGRES_PASSWORD: wellbeing
+      POSTGRES_DB: wellbeing
+    ports:
+      - '5432:5432'
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U wellbeing']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  pgdata: {}

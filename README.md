@@ -1,0 +1,158 @@
+# Wellbeing
+
+Ernährungs-, Symptom- und Medikations-Tracker für eine Person mit rheumatoider
+Arthritis und noch unbekannten Lebensmittel-Unverträglichkeiten. Selbst
+gehostet, intern erreichbar unter `https://wellbeing.int.buse.io`.
+
+Das Ziel ist nicht „Kalorien zählen“, sondern herauszufinden, **welches
+Verhalten sich wie auswirkt**. Deshalb bestehen Mahlzeiten aus wiederverwendbaren
+Lebensmitteln mit Kennzeichnung (Gluten, Laktose, Histamin, …) statt aus
+Freitext, und deshalb werden Schlaf, Stress, Bewegung, Zyklus und Kortisondosis
+mitgetrackt: ohne diese Störfaktoren wird bei RA jeder Schub fälschlich dem
+Essen zugeschrieben.
+
+## Stack
+
+Next.js 16 (App Router, Server Actions) · React 19 · TypeScript · Tailwind v4 ·
+Drizzle ORM auf Postgres 17 · Auth.js v5 mit Zitadel-OIDC · mobile-first PWA.
+
+## Lokal entwickeln
+
+```bash
+npm ci
+npm run db:up                    # Postgres 17 in Docker
+npm run db:migrate               # Schema anlegen
+npm run db:seed                  # Symptome, Tags, Gelenke (idempotent)
+cp .env.example .env.local       # AUTH_* ausfüllen, siehe unten
+npm run dev
+```
+
+`AUTH_ZITADEL_ID` und `AUTH_ZITADEL_SECRET` kommen aus dem Cluster-Repo:
+
+```bash
+cd ../terraform/home-talos-cluster/terraform/zitadel
+tofu output -raw wellbeing_client_id
+tofu output -raw wellbeing_client_secret
+```
+
+Lokal braucht es **kein** `NODE_EXTRA_CA_CERTS`: über den LAN-Loadbalancer
+liefert Zitadel ein öffentlich vertrautes Zertifikat. Nur im Cluster löst
+`zitadel.int.buse.io` auf das Cluster-Traefik mit interner CA auf.
+
+Ohne VPN-Verbindung ins Heimnetz ist kein Login möglich. Um die Oberfläche
+trotzdem zu entwickeln, erzeugt
+
+```bash
+npm run db:seed && npx tsx src/db/scripts/dev-session.ts
+```
+
+ein gültiges Session-Cookie. Es wird mit dem echten `AUTH_SECRET` signiert und
+ist damit dasselbe Artefakt, das ein erfolgreicher Login produziert — es
+funktioniert nur gegen einen Server mit demselben Secret. Niemals gegen die
+produktive Instanz benutzen.
+
+### Kamera und Barcode
+
+`getUserMedia` verlangt einen Secure Context. `http://localhost:3000`
+funktioniert, `http://192.168.x.x:3000` vom Handy aus **nicht** — dafür
+`next dev --experimental-https` verwenden.
+
+Auf dem iPhone gibt es keinen funktionierenden `BarcodeDetector` (in iOS 17
+hinter einem Flag, seit iOS 18 defekt). Dort läuft immer der WASM-Pfad
+(`zxing-wasm`), der dynamisch nachgeladen wird.
+
+## Prüfen
+
+```bash
+npm run pre-deploy   # type-check + lint + test + build
+npm run db:check     # Integrationstest gegen eine echte Datenbank
+npm run test:e2e     # Playwright
+```
+
+Playwright läuft gegen „Mobile Chrome" und „Mobile Safari" (iPhone-Profil).
+Für WebKit fehlt auf diesem Rechner noch eine Systemabhängigkeit:
+
+```bash
+sudo apt-get install libavif16 && npx playwright install webkit
+```
+
+`npm run db:check` ist der wichtigere der beiden Tests: CHECK-Constraints, der
+partielle Unique-Index für das idempotente Abhaken von Medikamenten und die
+Tagesgrenze lassen sich nur gegen Postgres verifizieren, nicht im Unit-Test.
+
+## Entscheidungen, die man kennen muss
+
+**Der logische Tag** (`src/lib/time.ts`) läuft von 04:00 bis 04:00
+Europe/Berlin. Ein Abendessen um 23:30 zählt zum richtigen Tag, ein Symptom um
+01:00 noch zum Tag davor. `log_date` kann keine Generated Column sein:
+`timezone(text, timestamptz)` ist `STABLE`, nicht `IMMUTABLE`. Clients senden
+nie ein `log_date` — die Server Action leitet es ab, damit eine falsch gestellte
+Handy-Uhr die Daten nicht verfälscht.
+
+**Nährwerte werden eingefroren, Kennzeichnungen nicht.** Eine Korrektur an
+einem Lebensmittel darf nicht rückwirkend die Verlaufscharts umschreiben, also
+liegt der Nährwert-Snapshot auf `meal_item`. Umtaggen ist dagegen ein
+Wissensgewinn („enthält versteckte Laktose“) und gilt bewusst rückwirkend — das
+ist der ganze Zweck der Übung.
+
+**Open Food Facts weiß nichts über Histamin, FODMAP, Nachtschatten oder
+Salicylate.** Diese Kennzeichnungen entstehen ausschließlich aus den lokalen
+Regeln in `src/db/seed/tagRules.ts`. Deshalb wird der OFF-Payload in
+`off_product.raw` behalten: Regeln ändern sich, und sie müssen ohne erneutes
+Abrufen neu ausgewertet werden können. Negative Regeln („glutenfrei“) sind
+nicht optional — ohne sie bekommt jedes glutenfreie Brot ein Gluten-Tag.
+
+**Dosisänderungen sind Historie, kein Edit.** Das alte Schema wird mit
+`valid_to` geschlossen und ein neues angelegt. Die vorherige Dosis ist eine
+Aussage über einen Zeitraum und in der Auswertung ein Störfaktor.
+
+**Migrationen laufen im Init-Container**, nie im App-Prozess. `npm run db:generate`
+erzeugt die SQL-Datei, die committet wird. **Niemals `drizzle-kit push`** — das
+verändert die Datenbank ohne committete Migration und lässt lokale und
+produktive Umgebung dauerhaft auseinanderlaufen.
+
+**Jede Server Action beginnt mit `requireUserForAction()`.** Server Actions sind
+adressierbare POST-Endpunkte; das Layout, das das Formular gerendert hat,
+schützt sie nicht.
+
+## Deployment
+
+Das Image wird von GitHub Actions nach `ghcr.io/maikbuse/wellbeing:<sha>-amd64`
+gebaut. Chart, ArgoCD-Application und Zitadel-Terraform liegen im Repo
+`home-talos-cluster`:
+
+- `helm/wellbeing/` — Deployment, Service, HTTPRoute, CNPG-Cluster,
+  NetworkPolicies, CA-ConfigMap, Backup-CronJob
+- `apps/wellbeing.yaml` — ArgoCD-Application (sync-wave 2)
+- `terraform/zitadel/` — OIDC-Client, Projekt `Household`, Rolle `wellbeing-user`
+- `helm/wellbeing/SECRET.md` — das `kubeseal`-Kommando
+
+`image.tag` wird nach dem ersten Build von argocd-image-updater verwaltet und
+nie von Hand editiert.
+
+## Backup und Restore
+
+Ein nächtlicher `pg_dump` schreibt nach `nfs-priv`; dieser Share liegt in der
+VM `home-nas-1`, die im wöchentlichen Proxmox-Backup enthalten ist. Das ist
+der einzige Pfad, auf dem diese Daten in einem existierenden, geprüften Backup
+landen — im Cluster selbst gibt es sonst **kein** Postgres-Backup.
+
+Ein Backup, das nie zurückgespielt wurde, ist eine Vermutung. Die Probe:
+
+```bash
+kubectl -n wellbeing exec deploy/wellbeing -- ls -1t /backup | head -3   # falls gemountet
+# oder direkt aus dem Job-Pod kopieren:
+kubectl -n wellbeing cp <backup-pod>:/backup/wellbeing-YYYYMMDD-HHMM.dump ./restore.dump
+
+npm run db:down && npm run db:up
+pg_restore --clean --if-exists --no-owner \
+  -d postgres://wellbeing:wellbeing@localhost:5432/wellbeing ./restore.dump
+npm run db:check    # Zeilenzahlen und Constraints prüfen
+```
+
+## Was diese App nicht ist
+
+Wellbeing sammelt eigene Beobachtungen und stellt statistische Zusammenhänge
+dar. Zusammenhang ist nicht Ursache, und die App stellt keine Diagnose.
+Änderungen an Ernährung oder Medikation gehören in die Hand der behandelnden
+Ärztin.

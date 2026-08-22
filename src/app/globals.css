@@ -1,0 +1,108 @@
+@import 'tailwindcss';
+
+/*
+ * Colour system derived from the Adobe palette
+ * (#B8C9D3 #DFA3A1 #F1A885 #FFE1C7 #FCF8F9).
+ *
+ * All five source tones are light, so none of them is usable as a text colour.
+ * The foreground and state colours below are darkened variants of the same
+ * hues: the palette still carries the design, but every text/background pair
+ * clears WCAG AA.
+ *
+ * Never encode a value with colour alone — the severity ramp is always
+ * accompanied by a number or label (rose and apricot sit close together on the
+ * colour wheel and are hard to tell apart).
+ */
+@theme {
+  --color-bg: #fcf8f9; /* page */
+  --color-card: #ffffff; /* cards, sheets */
+  --color-soft: #ffe1c7; /* highlighted surface, badges */
+  --color-primary: #f1a885; /* actions, active states */
+  --color-primary-fg: #4a2410; /* text ON primary — white would be ~2:1 */
+  --color-primary-strong: #b4552a; /* links, focus rings, primary text */
+  --color-secondary: #dfa3a1; /* symptoms */
+  --color-calm: #b8c9d3; /* "unremarkable", neutral charts */
+  --color-fg: #2a2224; /* body text, ~14:1 on --color-bg */
+  --color-muted: #6b5c5f; /* secondary text, ~5.9:1 on --color-bg */
+  --color-line: #ece1e3; /* borders, dividers */
+  --color-danger: #a64b49;
+  --color-ok: #4a6675;
+
+  /* Severity 0-10, staggered by lightness as well as hue. */
+  --color-sev-0: #b8c9d3;
+  --color-sev-1: #ffe1c7;
+  --color-sev-2: #f1a885;
+  --color-sev-3: #dfa3a1;
+  --color-sev-4: #8e3b39;
+
+  --radius-card: 1rem;
+}
+
+/* Dark mode: same hues, roles swapped. Surfaces become warm near-blacks, the
+ * two lightest palette tones become foreground accents. */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --color-bg: #1c1719;
+    --color-card: #272022;
+    --color-soft: #3a2c26;
+    --color-primary: #f1a885;
+    --color-primary-fg: #2a1408;
+    --color-primary-strong: #f6bfa3;
+    --color-secondary: #dfa3a1;
+    --color-calm: #b8c9d3;
+    --color-fg: #f6eff0;
+    --color-muted: #b3a3a6;
+    --color-line: #3a3033;
+    --color-danger: #e8908d;
+    --color-ok: #a8c2cf;
+  }
+}
+
+@layer base {
+  html {
+    color-scheme: light dark;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  body {
+    background-color: var(--color-bg);
+    color: var(--color-fg);
+    /* iOS zooms the viewport when a focused input is below 16px and never
+     * zooms back out. 16px is the floor for every control in this app. */
+    font-size: 16px;
+    min-height: 100dvh;
+    overscroll-behavior-y: contain;
+  }
+
+  input,
+  select,
+  textarea,
+  button {
+    font: inherit;
+    font-size: max(1rem, 16px);
+  }
+
+  /* German keypads produce "12,5"; the zod schemas accept both separators. */
+  input[type='number'] {
+    -moz-appearance: textfield;
+  }
+  input[type='number']::-webkit-outer-spin-button,
+  input[type='number']::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-primary-strong);
+    outline-offset: 2px;
+  }
+}
+
+@utility safe-bottom {
+  padding-bottom: max(0.5rem, env(safe-area-inset-bottom));
+}
+
+@utility tap {
+  min-height: 44px;
+  min-width: 44px;
+}
