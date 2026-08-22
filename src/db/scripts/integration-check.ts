@@ -92,6 +92,13 @@ const [glutenTag] = await db
   .from(foodTagDefs)
   .where(eq(foodTagDefs.key, 'gluten'))
   .limit(1);
+if (!glutenTag) {
+  console.error(
+    'Seeds fehlen. Erst `npm run db:seed` laufen lassen — der Migrator im ' +
+      'Cluster erledigt das, `drizzle-kit migrate` nicht.'
+  );
+  process.exit(1);
+}
 await db
   .insert(foodTags)
   .values({

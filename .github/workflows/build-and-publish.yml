@@ -45,7 +45,11 @@ jobs:
       # CHECK constraints, the partial unique index used for idempotent
       # medication check-off and the day-boundary handling can only be verified
       # against the database, not in a unit test.
+      # The cluster runs `node migrate.mjs`, which migrates AND seeds.
+      # drizzle-kit migrate only does the schema, so seed explicitly here to
+      # mirror what the init container actually does.
       - run: npm run db:migrate
+      - run: npm run db:seed
       - run: npm run db:check
 
   build:
