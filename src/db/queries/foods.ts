@@ -1,6 +1,8 @@
 import { and, desc, eq, ilike, isNull, or, sql } from 'drizzle-orm';
+import type { PgColumn } from 'drizzle-orm/pg-core';
 import { db } from '../index';
 import {
+  foodCatalog,
   foodPortions,
   foodTagDefs,
   foodTags,
@@ -98,6 +100,85 @@ export async function searchFoods(
     )
     .orderBy(desc(foods.useCount), foods.name)
     .limit(limit);
+}
+
+export type CatalogListItem = {
+  id: string;
+  blsCode: string;
+  nameDe: string;
+  kcal100: number | null;
+  isEveryday: boolean;
+};
+
+/**
+ * The BLS fallback, for when the library has nothing.
+ *
+ * Two things make this more than an ILIKE.
+ *
+ * The BLS writes compounds apart — "Hafer Flocken", "Reis poliert", "Hafer
+ * ganzes Korn" — while nobody types "Hafer Flocken". A plain `%haferflocken%`
+ * therefore misses the oats entirely and returns six kinds of
+ * Haferflockenauflauf, which is how this was found. So the name and the term
+ * are both squashed (spaces, commas, hyphens and slashes removed) and matched
+ * that way as well.
+ *
+ * And ordering is not a detail: the BLS enumerates every preparation of every
+ * food, so "apfel" matches a dozen rows of equal textual relevance. Everyday
+ * staples first (seed/data/bls-everyday.ts), then the earliest position of the
+ * match — a name that begins with the term beats one that buries it — then the
+ * shortest name, which is reliably the plainest variant. "Apfel roh" before
+ * "Apfelrotkohl gedünstet".
+ *
+ * A sequential scan over 7140 rows is nothing, which is just as well: the
+ * squashed match cannot use the plain-name index, and pg_trgm would have to be
+ * declared at CNPG bootstrap (see `searchFoods` above).
+ */
+const squashed = (column: PgColumn) =>
+  sql`regexp_replace(lower(${column}), '[ ,/-]', '', 'g')`;
+
+export async function searchCatalog(
+  query: string,
+  limit = 15
+): Promise<CatalogListItem[]> {
+  const term = query.trim();
+  if (term.length < 2) return [];
+
+  const squashedTerm = term.toLowerCase().replace(/[ ,/-]/g, '');
+  const name = foodCatalog.nameDe;
+  // Position of the match in the squashed name; 0 (no match) sorts last.
+  const position = sql`nullif(strpos(${squashed(name)}, ${squashedTerm}), 0)`;
+
+  return db
+    .select({
+      id: foodCatalog.id,
+      blsCode: foodCatalog.blsCode,
+      nameDe: foodCatalog.nameDe,
+      kcal100: foodCatalog.kcal100,
+      isEveryday: foodCatalog.isEveryday,
+    })
+    .from(foodCatalog)
+    .where(
+      or(
+        ilike(name, `%${term}%`),
+        sql`${squashed(name)} like ${'%' + squashedTerm + '%'}`
+      )
+    )
+    .orderBy(
+      desc(foodCatalog.isEveryday),
+      sql`${position} nulls last`,
+      sql`length(${name})`,
+      name
+    )
+    .limit(limit);
+}
+
+export async function getCatalogEntry(catalogId: string) {
+  const [row] = await db
+    .select()
+    .from(foodCatalog)
+    .where(eq(foodCatalog.id, catalogId))
+    .limit(1);
+  return row ?? null;
 }
 
 export async function findFoodByBarcode(barcode: string) {

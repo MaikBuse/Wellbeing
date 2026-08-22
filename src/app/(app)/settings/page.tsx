@@ -58,6 +58,22 @@ export default async function SettingsPage() {
         </CardMeta>
       </Card>
 
+      {/*
+       * CC BY 4.0 requires naming the Max Rubner-Institut wherever the data is
+       * used. This is that notice — not decoration, a licence condition.
+       */}
+      <Card>
+        <CardTitle>Datenquellen</CardTitle>
+        <CardMeta className="mt-1">
+          Nährwerte im Katalog stammen aus dem Bundeslebensmittelschlüssel:
+          Max Rubner-Institut (2025), BLS Version 4.0, Karlsruhe
+          (DOI 10.25826/Data20251217-134202-0), lizenziert unter CC BY 4.0.
+          Angaben zu verpackten Produkten kommen von Open Food Facts
+          (ODbL). Kennzeichnungen wie Histamin oder FODMAP stehen in keiner
+          der beiden Quellen und werden lokal aus Regeln abgeleitet.
+        </CardMeta>
+      </Card>
+
       <Card>
         <CardTitle>Was diese App nicht ist</CardTitle>
         <CardMeta className="mt-1">

@@ -46,6 +46,15 @@ Routen englisch, UI-Texte deutsch. Keine i18n-Library.
   auseinandergelaufen sind: neue Lebensmittel wurden auf `/foods` revalidiert,
   aber nicht auf `/`, wo die Picker-Chips stehen. `refresh()` gehört nicht dazu —
   es setzt das schwächere Signal und würde `revalidatePath` abschwächen.
+- **Der BLS-Katalog ist eine unveränderte Referenz.** `food_catalog` wird
+  ausschließlich aus `src/db/seed/data/bls-4.0.ts` geseedet und nie editiert;
+  Auswahl kopiert nach `food` (`copyCatalogEntryToLibrary`). Ein **nicht
+  gemessener** Nährwert ist `null` und entscheidet für eine `bls_measured`-Regel
+  **nichts**; ein gemessener Nullwert ist `0` und verhindert das Tag. Schwellen
+  liegen nicht bei 0: laktosefreie Milch misst 0,05 g Laktose. Regeneriert wird
+  die Datei mit `src/db/scripts/import-bls.ts` — als TS-Modul, nicht als CSV,
+  weil `migrate.ts` in den Init-Container gebündelt wird. Die CC-BY-Nennung des
+  Max Rubner-Instituts in README und `/settings` ist Lizenzbedingung.
 - **Nährwerte auf `meal_item` sind ein Snapshot** und werden nicht implizit neu
   berechnet. Kennzeichnungen (`food_tag`) sind es nicht und gelten rückwirkend.
   Diese Asymmetrie ist beabsichtigt.

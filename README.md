@@ -106,6 +106,32 @@ Regeln in `src/db/seed/tagRules.ts`. Deshalb wird der OFF-Payload in
 Abrufen neu ausgewertet werden können. Negative Regeln („glutenfrei“) sind
 nicht optional — ohne sie bekommt jedes glutenfreie Brot ein Gluten-Tag.
 
+**Der Nährstoffkatalog ist der Bundeslebensmittelschlüssel 4.0** — seit dem
+16.12.2025 unter CC BY 4.0 frei, 7140 deutsche Lebensmittel. Er deckt das ab,
+was Open Food Facts nicht kann: Unverpacktes ohne Barcode. Wichtiger noch sind
+seine Messwerte. Laktose, Fructose, Glucose, Sorbit, Mannit und Alkohol stehen
+als Gramm pro 100 g darin, und das schlägt jede Namensregel: Schnittkäse misst
+0 g Laktose, laktosefreie Milch 0,05 g und Vollmilch 3,89 g, und „Weinkraut mit
+Apfel gedünstet“ enthält 0,58 g Alkohol, den kein Stichwort je fände. Deshalb
+gibt es die Regeltypen `bls_measured` und `bls_group`. Die Schwelle liegt bei
+0,5 g und nicht bei 0 — sonst bekäme jede laktosefreie Milch ein Laktose-Tag.
+
+Ein nicht gemessener Nährwert ist `null` und entscheidet **nichts**; ein
+gemessener Nullwert ist `0` und verhindert das Tag. Diese Unterscheidung ist
+der ganze Vertrag zwischen Katalog und Regeln.
+
+Die Daten liegen als TS-Modul (`src/db/seed/data/bls-4.0.ts`) und nicht als
+CSV-Datei vor, weil `src/db/migrate.ts` per esbuild in den Init-Container
+gebündelt wird — eine zur Laufzeit über einen Pfad gelesene Datei gäbe es dort
+nicht. Regeneriert wird sie mit `src/db/scripts/import-bls.ts`; die zwei
+Entpack-Kommandos stehen im Kopf dieser Datei.
+
+Quelle: Max Rubner-Institut (2025): Bundeslebensmittelschlüssel (BLS), Version
+4.0 — Deutsche Nährstoffdatenbank. Karlsruhe.
+DOI [10.25826/Data20251217-134202-0](https://doi.org/10.25826/Data20251217-134202-0).
+Lizenz CC BY 4.0. Die Namensnennung ist Lizenzbedingung und steht auch in der
+App unter „Einstellungen“.
+
 **Dosisänderungen sind Historie, kein Edit.** Das alte Schema wird mit
 `valid_to` geschlossen und ein neues angelegt. Die vorherige Dosis ist eine
 Aussage über einen Zeitraum und in der Auswertung ein Störfaktor.

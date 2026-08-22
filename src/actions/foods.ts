@@ -16,7 +16,8 @@ import {
   parseServingGrams,
   type OffProductData,
 } from '@/lib/off';
-import { searchFoods } from '@/db/queries/foods';
+import { searchCatalog, searchFoods } from '@/db/queries/foods';
+import { copyCatalogEntryToLibrary } from '@/services/food/fromCatalog';
 import { revalidateFoods } from '@/lib/revalidate';
 import {
   deriveTags,
@@ -27,6 +28,7 @@ import {
 import {
   barcodeSchema,
   createFoodSchema,
+  catalogIdSchema,
   updateFoodTagsSchema,
 } from '@/lib/validation/food';
 import type { ActionResult } from './meals';
@@ -91,6 +93,15 @@ export async function searchFoodsAction(query: string) {
   await requireUserForAction();
   if (query.trim().length < 2) return [];
   return searchFoods(query);
+}
+
+/**
+ * The BLS fallback for the picker. Asked for only when the library is thin, so
+ * the three-tap path never waits on it.
+ */
+export async function searchCatalogAction(query: string) {
+  await requireUserForAction();
+  return searchCatalog(query);
 }
 
 /**
@@ -256,6 +267,28 @@ export async function createFoodFromOff(
 
   revalidateFoods();
   return { ok: true, foodId: food.id };
+}
+
+/**
+ * Thin auth wrapper: everything the copy actually does lives in
+ * `copyCatalogEntryToLibrary`, so `db:check` can exercise it against a real
+ * Postgres without a request scope.
+ */
+export async function createFoodFromCatalog(
+  catalogId: string
+): Promise<{ ok: true; foodId: string } | { ok: false; error: string }> {
+  const user = await requireUserForAction();
+  const parsed = catalogIdSchema.safeParse({ catalogId });
+  if (!parsed.success) return { ok: false, error: 'Eingabe ungültig' };
+
+  const result = await copyCatalogEntryToLibrary(
+    user.id,
+    parsed.data.catalogId
+  );
+  if (!result.ok) return result;
+
+  if (result.created) revalidateFoods();
+  return { ok: true, foodId: result.foodId };
 }
 
 export async function createFood(

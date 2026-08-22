@@ -3,11 +3,11 @@
 import { useEffect, useRef, useState, useTransition } from 'react';
 import { Loader2, Plus, Search } from 'lucide-react';
 import { toast } from 'sonner';
-import { searchFoodsAction } from '@/actions/foods';
+import { createFoodFromCatalog, searchCatalogAction, searchFoodsAction } from '@/actions/foods';
 import { quickAddFood } from '@/actions/meals';
 import { Chip, ChipRow } from '@/components/ui/chip';
 import { Input } from '@/components/ui/field';
-import type { FoodListItem } from '@/db/queries/foods';
+import type { CatalogListItem, FoodListItem } from '@/db/queries/foods';
 import type { MealSlotKey } from '@/lib/scales';
 import { SectionLabel } from '@/components/ui/section-label';
 
@@ -16,7 +16,13 @@ import { SectionLabel } from '@/components/ui/section-label';
  *
  * "Häufig" is ranked by usage within this slot, so after two weeks her actual
  * breakfast is the first three chips and no search is needed at all.
+ *
+ * The BLS catalog is a fallback and stays one: it is only queried once the
+ * library has come back thin, so the common path never waits on it.
  */
+/** Below this the library counts as "nothing useful", and the BLS is asked. */
+const THIN = 5;
+
 export function FoodPicker({
   slot,
   logDate,
@@ -40,6 +46,11 @@ export function FoodPicker({
     term: string;
     rows: FoodListItem[];
   } | null>(null);
+  // Only fetched when the library is thin for this term, and keyed the same way.
+  const [catalog, setCatalog] = useState<{
+    term: string;
+    rows: CatalogListItem[];
+  } | null>(null);
   const [searching, setSearching] = useState(false);
   const [pending, startTransition] = useTransition();
   const [addingId, setAddingId] = useState<string | null>(null);
@@ -52,9 +63,18 @@ export function FoodPicker({
     const timer = setTimeout(() => {
       setSearching(true);
       searchFoodsAction(term)
-        .then((rows) => {
+        .then(async (rows) => {
           // Ignore out-of-order responses from earlier keystrokes.
-          if (id === requestId.current) setResults({ term, rows });
+          if (id !== requestId.current) return;
+          setResults({ term, rows });
+          if (rows.length >= THIN) {
+            setCatalog(null);
+            return;
+          }
+          const found = await searchCatalogAction(term).catch(
+            (): CatalogListItem[] => []
+          );
+          if (id === requestId.current) setCatalog({ term, rows: found });
         })
         .catch(() => {
           if (id === requestId.current) setResults({ term, rows: [] });
@@ -66,19 +86,45 @@ export function FoodPicker({
     return () => clearTimeout(timer);
   }, [query]);
 
+  function added(name: string) {
+    toast.success(`${name} hinzugefügt`);
+    setQuery('');
+    setResults(null);
+    setCatalog(null);
+    onAdded?.();
+  }
+
   function add(food: FoodListItem) {
     setAddingId(food.id);
     startTransition(async () => {
       const result = await quickAddFood({ slot, logDate, foodId: food.id });
       setAddingId(null);
-      if (result.ok) {
-        toast.success(`${food.name} hinzugefügt`);
-        setQuery('');
-        setResults(null);
-        onAdded?.();
-      } else {
-        toast.error(result.error);
+      if (result.ok) added(food.name);
+      else toast.error(result.error);
+    });
+  }
+
+  /**
+   * Copy the catalog entry into the library, then log it — one tap for what
+   * used to be a trip to the "Neu anlegen" form.
+   */
+  function addFromCatalog(entry: CatalogListItem) {
+    setAddingId(entry.id);
+    startTransition(async () => {
+      const created = await createFoodFromCatalog(entry.id);
+      if (!created.ok) {
+        setAddingId(null);
+        toast.error(created.error);
+        return;
       }
+      const result = await quickAddFood({
+        slot,
+        logDate,
+        foodId: created.foodId,
+      });
+      setAddingId(null);
+      if (result.ok) added(entry.nameDe);
+      else toast.error(result.error);
     });
   }
 
@@ -86,6 +132,8 @@ export function FoodPicker({
   // Derived, not synced: results only count while they match what is typed.
   const matching =
     term.length >= 2 && results?.term === term ? results.rows : null;
+  const catalogHits =
+    term.length >= 2 && catalog?.term === term ? catalog.rows : [];
   const suggestions = frequent.length > 0 ? frequent : recent;
   const shown = matching ?? suggestions;
   const heading =
@@ -148,16 +196,42 @@ export function FoodPicker({
             ))}
           </ChipRow>
         </div>
-      ) : matching !== null ? (
-        <p className="text-sm text-muted">
-          Nichts gefunden. Lege das Lebensmittel unter „Essen“ neu an oder
-          scanne den Barcode.
-        </p>
-      ) : showEmptyHint ? (
-        <p className="text-sm text-muted">
-          Noch keine Lebensmittel. Scanne einen Barcode oder lege eins unter
-          „Essen“ an.
-        </p>
+      ) : null}
+
+      {catalogHits.length > 0 ? (
+        <div className="space-y-2">
+          <SectionLabel>Aus dem Nährstoffkatalog</SectionLabel>
+          <ChipRow>
+            {catalogHits.map((entry) => (
+              <Chip
+                key={entry.id}
+                disabled={pending && addingId === entry.id}
+                onClick={() => addFromCatalog(entry)}
+              >
+                {pending && addingId === entry.id ? (
+                  <Loader2 aria-hidden className="size-3.5 animate-spin" />
+                ) : (
+                  <Plus aria-hidden className="size-3.5" />
+                )}
+                {entry.nameDe}
+              </Chip>
+            ))}
+          </ChipRow>
+        </div>
+      ) : null}
+
+      {shown.length === 0 && catalogHits.length === 0 ? (
+        matching !== null ? (
+          <p className="text-sm text-muted">
+            Nichts gefunden. Lege das Lebensmittel unter „Essen“ neu an oder
+            scanne den Barcode.
+          </p>
+        ) : showEmptyHint ? (
+          <p className="text-sm text-muted">
+            Noch keine Lebensmittel. Scanne einen Barcode oder lege eins unter
+            „Essen“ an.
+          </p>
+        ) : null
       ) : null}
     </div>
   );

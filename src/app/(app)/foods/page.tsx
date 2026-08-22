@@ -1,9 +1,10 @@
 import Link from 'next/link';
 import { Plus, ScanLine } from 'lucide-react';
 import { requireUser } from '@/auth.helpers';
-import { recentFoods, searchFoods } from '@/db/queries/foods';
+import { recentFoods, searchCatalog, searchFoods } from '@/db/queries/foods';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
+import { CatalogResults } from '@/components/food-picker/catalog-results';
 import { EmptyState } from '@/components/ui/empty-state';
 import { Input } from '@/components/ui/field';
 import { PageHeader } from '@/components/ui/page-header';
@@ -21,6 +22,10 @@ export default async function FoodsPage({
   const query = q?.trim() ?? '';
   const foods =
     query.length >= 2 ? await searchFoods(query, 50) : await recentFoods(50);
+  // The BLS is a fallback, not a competitor to the library: it is only queried
+  // once the library itself has come back thin for this term.
+  const catalogEntries =
+    query.length >= 2 && foods.length < 5 ? await searchCatalog(query, 15) : [];
 
   return (
     <main className="space-y-4 p-4">
@@ -54,7 +59,7 @@ export default async function FoodsPage({
         />
       </form>
 
-      {foods.length === 0 ? (
+      {foods.length === 0 && catalogEntries.length === 0 ? (
         <EmptyState
           icon={<ScanLine aria-hidden className="size-7" />}
           title={query ? 'Nichts gefunden' : 'Noch keine Lebensmittel'}
@@ -71,7 +76,7 @@ export default async function FoodsPage({
             </Button>
           }
         />
-      ) : (
+      ) : foods.length === 0 ? null : (
         <Card padded={false}>
           <ul className="divide-y divide-line-soft">
             {foods.map((food, index) => (
@@ -104,6 +109,8 @@ export default async function FoodsPage({
           </ul>
         </Card>
       )}
+
+      <CatalogResults entries={catalogEntries} />
     </main>
   );
 }

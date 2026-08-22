@@ -6,7 +6,9 @@ export type TagRuleSeed = {
     | 'off_category'
     | 'off_additive'
     | 'ingredient_keyword'
-    | 'name_keyword';
+    | 'name_keyword'
+    | 'bls_group'
+    | 'bls_measured';
   pattern: string;
   confidence?: 'certain' | 'likely' | 'trace';
   /** Negative rules EXCLUDE the tag — without them every "glutenfreies Brot"
@@ -163,6 +165,13 @@ export const TAG_RULES: TagRuleSeed[] = [
     tagKey: 'shellfish',
     matchType: 'off_allergen',
     pattern: 'en:crustaceans|en:molluscs',
+    confidence: 'certain',
+  },
+  {
+    tagKey: 'shellfish',
+    matchType: 'name_keyword',
+    pattern:
+      'garnele|krabbe|hummer|languste|flusskrebs|edelkrebs|scampi|tintenfisch|kalmar|muschel|auster|jakobsmuschel',
     confidence: 'certain',
   },
   {
@@ -384,4 +393,100 @@ export const TAG_RULES: TagRuleSeed[] = [
     matchType: 'off_category',
     pattern: 'en:meals|en:prepared-meals',
   },
+
+  // --- Bundeslebensmittelschlüssel ---------------------------------------
+  //
+  // These only ever fire for catalog-derived foods; OFF and manual foods carry
+  // no BLS code and no measured values, and a `bls_measured` rule treats an
+  // unmeasured nutrient as "decides nothing" rather than as zero.
+  //
+  // Measured beats keyword wherever the BLS actually measures the thing, and
+  // the difference is not cosmetic: hard cheese measures 0 g lactose while a
+  // rule on "käse" would tag it, lactose-free milk measures 0.05 g and stays
+  // under the threshold, and "Weinkraut mit Apfel gedünstet" carries 0.58 g of
+  // alcohol that no keyword would ever find.
+  //
+  // The negative name rules above still apply and still win — belt and braces.
+
+  // 0.5 g/100 g is the line between "contains" and "residual". German
+  // lactose-free dairy is legally < 0.1 g and measures 0.05.
+  {
+    tagKey: 'lactose',
+    matchType: 'bls_measured',
+    pattern: 'lactose>0.5',
+    confidence: 'certain',
+  },
+  // Fructose in excess of glucose — the criterion fructose malabsorption
+  // responds to. Plain fructose would flag every fruit equally.
+  {
+    tagKey: 'fructose',
+    matchType: 'bls_measured',
+    pattern: 'fructose_excess>0.5',
+    confidence: 'certain',
+  },
+  // Sorbitol and mannitol together: one FODMAP axis, not two.
+  {
+    tagKey: 'sorbitol',
+    matchType: 'bls_measured',
+    pattern: 'polyol>0.5',
+    confidence: 'certain',
+  },
+  {
+    tagKey: 'alcohol',
+    matchType: 'bls_measured',
+    pattern: 'alcohol>0.5',
+    confidence: 'certain',
+  },
+  // The UK FSA front-of-pack threshold for "high".
+  {
+    tagKey: 'high_sugar',
+    matchType: 'bls_measured',
+    pattern: 'sugar>22.5',
+    confidence: 'certain',
+  },
+  // EPA + DHA. 0.3 g/100 g separates oily fish from everything else.
+  {
+    tagKey: 'omega3',
+    matchType: 'bls_measured',
+    pattern: 'epaDha>0.3',
+    confidence: 'certain',
+  },
+  {
+    tagKey: 'arachidonic_acid',
+    matchType: 'bls_measured',
+    pattern: 'arachidonic>0.05',
+    confidence: 'certain',
+  },
+
+  // Group rules address the BLS code, not the leading letter alone: group E
+  // holds both pasta (E4…, E5…, E6…) and eggs (E1…).
+  { tagKey: 'egg', matchType: 'bls_group', pattern: '^E1', confidence: 'certain' },
+  // T7 is crustaceans and molluscs; every other T subgroup is fish, T6
+  // included — that is Flussbarsch, not shellfish. The handful of breaded
+  // squid and prawns in T9 are caught by the shellfish name rule above.
+  {
+    tagKey: 'fish',
+    matchType: 'bls_group',
+    pattern: '^T[0-689]',
+    confidence: 'certain',
+  },
+  {
+    tagKey: 'shellfish',
+    matchType: 'bls_group',
+    pattern: '^T7',
+    confidence: 'certain',
+  },
+  { tagKey: 'red_meat', matchType: 'bls_group', pattern: '^U', confidence: 'certain' },
+  {
+    tagKey: 'processed_meat',
+    matchType: 'bls_group',
+    pattern: '^W',
+    confidence: 'certain',
+  },
+  { tagKey: 'milk_protein', matchType: 'bls_group', pattern: '^M', confidence: 'likely' },
+  { tagKey: 'fruit', matchType: 'bls_group', pattern: '^F' },
+  { tagKey: 'vegetable', matchType: 'bls_group', pattern: '^[GK]' },
+  { tagKey: 'beverage', matchType: 'bls_group', pattern: '^[NP]' },
+  { tagKey: 'sweets', matchType: 'bls_group', pattern: '^S' },
+  { tagKey: 'ready_meal', matchType: 'bls_group', pattern: '^[XY]' },
 ];

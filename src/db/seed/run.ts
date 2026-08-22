@@ -12,6 +12,7 @@
 import { sql } from 'drizzle-orm';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import { foodTagDefs, joints, symptomTypes, tagRules } from '../schema';
+import { seedFoodCatalog } from './bls';
 import { FOOD_TAGS } from './tags';
 import { SYMPTOM_TYPES } from './symptomTypes';
 import { JOINTS } from './joints';
@@ -24,6 +25,7 @@ export async function seedLookups(db: Database): Promise<{
   symptoms: number;
   joints: number;
   rules: number;
+  catalog: number;
 }> {
   await db
     .insert(foodTagDefs)
@@ -125,11 +127,16 @@ export async function seedLookups(db: Database): Promise<{
   });
   if (ruleRows.length > 0) await db.insert(tagRules).values(ruleRows);
 
+  // Last, and after the tag rules: the catalog is the largest write by far and
+  // nothing else depends on it, so a failure here leaves a usable app.
+  const catalog = await seedFoodCatalog(db);
+
   return {
     tags: FOOD_TAGS.length,
     symptoms: SYMPTOM_TYPES.length,
     joints: JOINTS.length,
     rules: ruleRows.length,
+    catalog,
   };
 }
 

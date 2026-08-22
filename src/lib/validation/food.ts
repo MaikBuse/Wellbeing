@@ -32,6 +32,8 @@ export const updateFoodTagsSchema = z.object({
   tagIds: z.array(uuid).max(60),
 });
 
+export const catalogIdSchema = z.object({ catalogId: uuid });
+
 export const barcodeSchema = z.object({
   barcode: z
     .string()

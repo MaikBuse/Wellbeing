@@ -27,7 +27,7 @@ export const onsetLag = pgEnum('onset_lag', [
   'next_day',
 ]);
 
-export const foodSource = pgEnum('food_source', ['off', 'manual']);
+export const foodSource = pgEnum('food_source', ['off', 'bls', 'manual']);
 export const tagSource = pgEnum('tag_source', [
   'off_derived',
   'rule',
@@ -52,6 +52,13 @@ export const tagRuleMatch = pgEnum('tag_rule_match', [
   'off_additive',
   'ingredient_keyword',
   'name_keyword',
+  /** Regex on the BLS code, so a rule can address a food group: '^E1' is egg,
+   * '^T' is fish. The leading letter alone is not enough — group E holds both
+   * pasta and eggs. */
+  'bls_group',
+  /** A threshold on a measured BLS nutrient: 'lactose>0.5'. This is the reason
+   * the catalog carries the trigger columns at all — see services/off/tagRules. */
+  'bls_measured',
 ]);
 export const portionUnit = pgEnum('portion_unit', [
   'g',

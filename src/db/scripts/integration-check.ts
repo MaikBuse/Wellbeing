@@ -11,6 +11,7 @@ import { db } from '@/db';
 import {
   appUsers,
   dailyLogs,
+  foodCatalog,
   foodTagDefs,
   foodTags,
   foods,
@@ -24,7 +25,9 @@ import {
   symptomTypes,
   userSettings,
 } from '@/db/schema';
+import { searchCatalog } from '@/db/queries/foods';
 import { seedLookups } from '@/db/seed/run';
+import { copyCatalogEntryToLibrary } from '@/services/food/fromCatalog';
 import { nutrientsForGrams, resolveGrams } from '@/lib/nutrition';
 import { toLogDate } from '@/lib/time';
 import { expandDueDoses } from '@/services/medication/schedule';
@@ -526,6 +529,143 @@ const [ownTag] = await db
   .returning({ id: foodTagDefs.id });
 check('a per-user tag may reuse a global key', !!ownTag);
 await db.delete(foodTagDefs).where(eq(foodTagDefs.id, ownTag.id));
+
+// --- BLS catalog -----------------------------------------------------------
+//
+// The catalog is seeded on every deploy like the lookup tables, so the same
+// duplication question applies — but `bls_code` is NOT NULL, so a plain unique
+// index is enough and ON CONFLICT actually matches. Verified, not assumed.
+console.log('\nbls catalog');
+
+const [catalogCount] = await db.execute<{ n: number }>(
+  sql`select count(*)::int as n from food_catalog`
+);
+check(
+  '7140 catalog entries after two seed runs',
+  catalogCount.n === 7140,
+  String(catalogCount.n)
+);
+
+const [everydayCount] = await db.execute<{ n: number }>(
+  sql`select count(*)::int as n from food_catalog where is_everyday`
+);
+check(
+  'the everyday shortlist is flagged',
+  everydayCount.n === 230,
+  String(everydayCount.n)
+);
+
+await expectReject('a duplicate bls_code is rejected', () =>
+  db.insert(foodCatalog).values({
+    blsCode: 'M111300',
+    nameDe: 'Duplikat',
+    groupKey: 'M',
+  })
+);
+
+// The measured values have to survive numeric(10,3) intact — this is what the
+// `bls_measured` thresholds read, and lactose-free milk sits at 0.05.
+const [milk] = await db
+  .select()
+  .from(foodCatalog)
+  .where(eq(foodCatalog.blsCode, 'M111300'))
+  .limit(1);
+check('milk keeps its measured lactose', milk?.lactose100 === 3.89, String(milk?.lactose100));
+
+const [lactoseFree] = await db
+  .select()
+  .from(foodCatalog)
+  .where(eq(foodCatalog.blsCode, 'M1E3300'))
+  .limit(1);
+check(
+  'lactose-free milk stays under the 0.5 threshold',
+  lactoseFree?.lactose100 === 0.05,
+  String(lactoseFree?.lactose100)
+);
+
+// Search ranking. The BLS writes compounds apart — "Hafer Flocken" — and a
+// plain ILIKE on what someone actually types therefore returns six kinds of
+// Haferflockenauflauf and not the oats. This is the regression guard.
+const oatHits = await searchCatalog('haferflocken', 5);
+check(
+  '"haferflocken" finds "Hafer Flocken" despite the space',
+  oatHits[0]?.nameDe === 'Hafer Flocken',
+  oatHits.map((h) => h.nameDe).join(' | ')
+);
+
+const appleHits = await searchCatalog('apfel', 5);
+check(
+  'everyday staples outrank the preparations',
+  appleHits[0]?.nameDe === 'Apfel roh',
+  appleHits.map((h) => h.nameDe).join(' | ')
+);
+
+check('a one-character term searches nothing', (await searchCatalog('a')).length === 0);
+
+// Copy-on-use, twice, and from two different accounts: the library is shared
+// and unique on the name, so the second pick must find the first food rather
+// than fail or fork it.
+const [oats] = await db
+  .select()
+  .from(foodCatalog)
+  .where(eq(foodCatalog.blsCode, 'C133000'))
+  .limit(1);
+
+const firstPick = await copyCatalogEntryToLibrary(user.id, oats.id);
+const secondPick = await copyCatalogEntryToLibrary(otherUser.id, oats.id);
+check(
+  'two accounts picking the same entry share one food',
+  firstPick.ok &&
+    secondPick.ok &&
+    firstPick.foodId === secondPick.foodId &&
+    firstPick.created &&
+    !secondPick.created,
+  JSON.stringify({ firstPick, secondPick })
+);
+
+if (firstPick.ok) {
+  const [copied] = await db
+    .select()
+    .from(foods)
+    .where(eq(foods.id, firstPick.foodId))
+    .limit(1);
+  check('the copy records its origin', copied?.blsCatalogId === oats.id);
+  check('the copy is marked as coming from the BLS', copied?.source === 'bls');
+  check(
+    'the nutrient snapshot came across',
+    copied?.kcal100 === oats.kcal100,
+    `${copied?.kcal100} vs ${oats.kcal100}`
+  );
+
+  // Oats are group C with no measured lactose or alcohol, so the interesting
+  // assertion is the negative one: no trigger tag invented out of nothing.
+  const copiedTags = await db
+    .select({ key: foodTagDefs.key })
+    .from(foodTags)
+    .innerJoin(foodTagDefs, eq(foodTagDefs.id, foodTags.tagId))
+    .where(eq(foodTags.foodId, firstPick.foodId));
+  const keys = copiedTags.map((t) => t.key);
+  check(
+    'oats are tagged grain by the keyword rules',
+    keys.includes('grain'),
+    keys.join(',')
+  );
+  // Oats are not a gluten grain — tagRules.ts leaves 'hafer' out of the gluten
+  // pattern deliberately, and the catalog copy must not reintroduce it.
+  check(
+    'oats are not tagged gluten',
+    !keys.includes('gluten'),
+    keys.join(',')
+  );
+  check(
+    'oats get no lactose tag from a zero measurement',
+    !keys.includes('lactose'),
+    keys.join(',')
+  );
+
+  await db.delete(foodTags).where(eq(foodTags.foodId, firstPick.foodId));
+  await db.delete(foods).where(eq(foods.id, firstPick.foodId));
+}
 
 // Clean up. Meals have to go first: meal_item.food_id is deliberately
 // ON DELETE RESTRICT so that deleting a food can never quietly erase history,
