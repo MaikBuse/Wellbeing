@@ -11,8 +11,19 @@ import { addDays, formatLogDateShort, type LogDate } from '@/lib/time';
  * type is not automatic — Next has no idea which of two links is "back", so the
  * mapping is declared here and consumed by the ::view-transition rules in
  * globals.css.
+ *
+ * On the today screen the middle slot is a label rather than a link: "Heute"
+ * points at `/`, which is the page the user is already on. It stays visible
+ * because the stepper's centre is what says where in the sequence you are.
  */
-export function DateStepper({ logDate }: { logDate: LogDate }) {
+export function DateStepper({
+  logDate,
+  isToday = false,
+}: {
+  logDate: LogDate;
+  /** Set on `/`, where the "Heute" link would point at the current page. */
+  isToday?: boolean;
+}) {
   const previous = addDays(logDate, -1);
   const next = addDays(logDate, 1);
 
@@ -25,9 +36,15 @@ export function DateStepper({ logDate }: { logDate: LogDate }) {
         </Link>
       </Button>
 
-      <Button asChild variant="ghost" size="sm">
-        <Link href="/">Heute</Link>
-      </Button>
+      {isToday ? (
+        <span aria-current="page" className="px-3 text-sm font-medium text-muted">
+          Heute
+        </span>
+      ) : (
+        <Button asChild variant="ghost" size="sm">
+          <Link href="/">Heute</Link>
+        </Button>
+      )}
 
       <Button asChild variant="outline" size="sm">
         <Link href={`/day/${next}`} transitionTypes={['nav-forward']}>

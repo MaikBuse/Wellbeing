@@ -8,6 +8,11 @@ import { cn } from '@/lib/utils';
  * Section navigation. `Chip`-shaped links rather than a tabs primitive: there
  * is no Radix tabs in this project, and a row of chips already gives the 44 px
  * targets and the pressed state.
+ *
+ * The row wraps rather than scrolls. Four short labels overflow a phone column
+ * by a hair, and `overflow-x-auto` paid for that with a visible scrollbar —
+ * hiding it would have made the fourth section undiscoverable instead. A second
+ * line costs one row of height and keeps every section on screen.
  */
 const SECTIONS = [
   { href: '/analyse', label: 'Überblick' },
@@ -30,8 +35,8 @@ export function SectionNav() {
       )?.href ?? '/analyse';
 
   return (
-    <nav aria-label="Analyse-Bereiche" className="-mx-1 overflow-x-auto px-1">
-      <ul className="flex gap-2">
+    <nav aria-label="Analyse-Bereiche" className="-mx-1 px-1">
+      <ul className="flex flex-wrap gap-2">
         {SECTIONS.map((section) => {
           const active = section.href === current;
           return (

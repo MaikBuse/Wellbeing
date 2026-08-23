@@ -31,7 +31,10 @@ export function PageHeader({
             {eyebrow}
           </p>
         ) : null}
-        <h1 className="text-title text-balance text-fg">{title}</h1>
+        {/* break-words, because the title column is min-w-0: without it a long
+         * single word — "Lebensmittel" — paints outside its shrunken box and
+         * under the action buttons. */}
+        <h1 className="text-title text-balance break-words text-fg">{title}</h1>
         {description ? (
           <p className="mt-1 text-sm text-muted">{description}</p>
         ) : null}

@@ -36,7 +36,11 @@ export default async function FoodsPage({
             <Button asChild variant="soft" size="sm">
               <Link href="/scan">
                 <ScanLine aria-hidden className="size-4" />
-                Scannen
+                {/* Two actions plus "Lebensmittel" do not fit a phone column.
+                 * Hidden, not removed: the accessible name stays "Scannen" at
+                 * every width, and an sr-only span is out of flow, so the
+                 * button's gap-2 adds no dead width beside the icon. */}
+                <span className="sr-only sm:not-sr-only">Scannen</span>
               </Link>
             </Button>
             <Button asChild size="sm">
