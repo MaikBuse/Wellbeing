@@ -18,6 +18,12 @@ import {
 } from '@/lib/off';
 import { searchCatalog, searchFoods } from '@/db/queries/foods';
 import { copyCatalogEntryToLibrary } from '@/services/food/fromCatalog';
+import {
+  addPortion,
+  editPortion,
+  makePortionDefault,
+  removePortion,
+} from '@/services/food/portions';
 import { revalidateFoods } from '@/lib/revalidate';
 import {
   deriveTags,
@@ -28,13 +34,18 @@ import {
 import {
   NUTRIENT_FIELDS,
   barcodeSchema,
+  createFoodPortionSchema,
   createFoodSchema,
   catalogIdSchema,
   enteredValues,
+  foodPortionIdSchema,
   resolveNutrientBasis,
   updateFoodNutrientsSchema,
+  updateFoodPortionSchema,
   updateFoodTagsSchema,
+  type CreateFoodPortionInput,
   type NutrientField,
+  type UpdateFoodPortionInput,
 } from '@/lib/validation/food';
 import type { Per100 } from '@/lib/nutrition';
 import type { z } from 'zod';
@@ -532,4 +543,72 @@ export async function listAnalysedTags() {
     .from(foodTagDefs)
     .where(isNull(foodTagDefs.userId))
     .orderBy(foodTagDefs.sortOrder);
+}
+
+/* -------------------------------------------------------------------------- */
+/*  Eigene Maßeinheiten                                                        */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Thin auth wrappers. Everything these do lives in `services/food/portions`, so
+ * `db:check` can exercise the constraint behaviour against a real Postgres
+ * without a request scope — the same split as `copyCatalogEntryToLibrary`.
+ *
+ * Existence, not ownership, is checked in the service: the food library is
+ * shared, exactly as for tags and nutrients.
+ */
+export async function createFoodPortion(
+  input: CreateFoodPortionInput
+): Promise<ActionResult> {
+  await requireUserForAction();
+  const parsed = createFoodPortionSchema.safeParse(input);
+  if (!parsed.success) {
+    return {
+      ok: false,
+      error: parsed.error.issues[0]?.message ?? 'Eingabe ungültig',
+    };
+  }
+  const { foodId, labelDe, ...amount } = parsed.data;
+  const result = await addPortion(foodId, labelDe, amount);
+  if (result.ok) revalidateFoods();
+  return result;
+}
+
+export async function updateFoodPortion(
+  input: UpdateFoodPortionInput
+): Promise<ActionResult> {
+  await requireUserForAction();
+  const parsed = updateFoodPortionSchema.safeParse(input);
+  if (!parsed.success) {
+    return {
+      ok: false,
+      error: parsed.error.issues[0]?.message ?? 'Eingabe ungültig',
+    };
+  }
+  const { portionId, labelDe, ...amount } = parsed.data;
+  const result = await editPortion(portionId, labelDe, amount);
+  if (result.ok) revalidateFoods();
+  return result;
+}
+
+export async function deleteFoodPortion(
+  portionId: string
+): Promise<ActionResult> {
+  await requireUserForAction();
+  const parsed = foodPortionIdSchema.safeParse({ portionId });
+  if (!parsed.success) return { ok: false, error: 'Eingabe ungültig' };
+  const result = await removePortion(parsed.data.portionId);
+  if (result.ok) revalidateFoods();
+  return result;
+}
+
+export async function setDefaultFoodPortion(
+  portionId: string
+): Promise<ActionResult> {
+  await requireUserForAction();
+  const parsed = foodPortionIdSchema.safeParse({ portionId });
+  if (!parsed.success) return { ok: false, error: 'Eingabe ungültig' };
+  const result = await makePortionDefault(parsed.data.portionId);
+  if (result.ok) revalidateFoods();
+  return result;
 }

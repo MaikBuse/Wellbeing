@@ -1,9 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import {
+  createFoodPortionSchema,
   createFoodSchema,
   enteredValues,
   resolveNutrientBasis,
+  resolvePortionGrams,
   type NutrientBasisEntry,
+  type PortionGramsEntry,
 } from '../food';
 
 const label = {
@@ -256,5 +259,142 @@ describe('enteredValues', () => {
       fiber100: null,
       salt100: null,
     });
+  });
+});
+
+const portion = (over: Partial<PortionGramsEntry>): PortionGramsEntry => ({
+  mode: 'direct',
+  amount: null,
+  count: null,
+  totalAmount: null,
+  kcalPerUnit: null,
+  kcal100: null,
+  unit: 'g',
+  ...over,
+});
+
+describe('resolvePortionGrams', () => {
+  it('takes a directly entered weight', () => {
+    const r = resolvePortionGrams(portion({ mode: 'direct', amount: 58 }));
+    expect(r).toEqual({ ok: true, grams: 58 });
+  });
+
+  it('divides a weighed batch — ten eggs at 580 g are 58 g each', () => {
+    const r = resolvePortionGrams(
+      portion({ mode: 'weighed', count: 10, totalAmount: 580 })
+    );
+    expect(r).toEqual({ ok: true, grams: 58 });
+  });
+
+  it('rounds the batch division to the two decimals the column stores', () => {
+    const r = resolvePortionGrams(
+      portion({ mode: 'weighed', count: 3, totalAmount: 100 })
+    );
+    expect(r.ok && r.grams).toBe(33.33);
+  });
+
+  it('refuses a fractional count — half an egg cannot be counted', () => {
+    const r = resolvePortionGrams(
+      portion({ mode: 'weighed', count: 2.5, totalAmount: 100 })
+    );
+    expect(r.ok).toBe(false);
+    expect(!r.ok && r.field).toBe('count');
+  });
+
+  it('refuses a count of zero rather than dividing by it', () => {
+    const r = resolvePortionGrams(
+      portion({ mode: 'weighed', count: 0, totalAmount: 100 })
+    );
+    expect(r.ok).toBe(false);
+    expect(!r.ok && r.field).toBe('count');
+  });
+
+  it('refuses a missing or non-positive total', () => {
+    for (const totalAmount of [null, 0, -5]) {
+      const r = resolvePortionGrams(
+        portion({ mode: 'weighed', count: 4, totalAmount })
+      );
+      expect(r.ok).toBe(false);
+      expect(!r.ok && r.field).toBe('totalAmount');
+    }
+  });
+
+  it('derives the weight from calories per unit', () => {
+    const r = resolvePortionGrams(
+      portion({ mode: 'kcal', kcalPerUnit: 90, kcal100: 155 })
+    );
+    expect(r.ok && r.grams).toBe(58.06);
+  });
+
+  it('refuses the kcal mode when the food has no energy value', () => {
+    for (const kcal100 of [null, 0]) {
+      const r = resolvePortionGrams(
+        portion({ mode: 'kcal', kcalPerUnit: 90, kcal100 })
+      );
+      expect(r.ok).toBe(false);
+      expect(!r.ok && r.field).toBe('kcalPerUnit');
+      expect(!r.ok && r.error).toContain('Kalorienwert');
+    }
+  });
+
+  it('names the basis unit in its messages, so a drink does not read as grams', () => {
+    const r = resolvePortionGrams(
+      portion({ mode: 'direct', amount: null, unit: 'ml' })
+    );
+    expect(!r.ok && r.error).toContain('ml');
+  });
+
+  /**
+   * The thousands-point trap, the same one `resolveNutrientBasis` guards. Every
+   * input looks ordinary on its own: "1.000" is 1 to Number, so a total of one
+   * kilo becomes one gram and each of ten units weighs 0,1 g. Only a bound on
+   * the RESULT could catch the other direction, and this checks both ends.
+   */
+  it('rejects a result above the reference ceiling', () => {
+    const r = resolvePortionGrams(
+      portion({ mode: 'direct', amount: 10_001 })
+    );
+    expect(r.ok).toBe(false);
+    expect(!r.ok && r.error).toContain('Tausenderpunkt');
+  });
+
+  it('never lets NaN or Infinity through as a weight', () => {
+    for (const amount of [Number.NaN, Number.POSITIVE_INFINITY]) {
+      expect(resolvePortionGrams(portion({ mode: 'direct', amount })).ok).toBe(
+        false
+      );
+    }
+    // A division that would produce Infinity is caught before it happens.
+    expect(
+      resolvePortionGrams(
+        portion({ mode: 'kcal', kcalPerUnit: 90, kcal100: Number.NaN })
+      ).ok
+    ).toBe(false);
+  });
+});
+
+describe('createFoodPortionSchema', () => {
+  const foodId = '00000000-0000-4000-8000-000000000001';
+
+  it('reads German decimal commas in every mode', () => {
+    const parsed = createFoodPortionSchema.safeParse({
+      foodId,
+      labelDe: ' Stück ',
+      mode: 'weighed',
+      count: '10',
+      totalAmount: '580,5',
+    });
+    expect(parsed.success && parsed.data.labelDe).toBe('Stück');
+    expect(parsed.success && parsed.data.totalAmount).toBe(580.5);
+  });
+
+  it('refuses an empty name', () => {
+    const parsed = createFoodPortionSchema.safeParse({
+      foodId,
+      labelDe: '   ',
+      mode: 'direct',
+      amount: '58',
+    });
+    expect(parsed.success).toBe(false);
   });
 });

@@ -15,6 +15,7 @@ import {
   eliminationPhases,
   eliminationProtocols,
   foodCatalog,
+  foodPortions,
   foodTagDefs,
   foodTags,
   foods,
@@ -34,6 +35,12 @@ import {
 import { searchCatalog } from '@/db/queries/foods';
 import { seedLookups } from '@/db/seed/run';
 import { copyCatalogEntryToLibrary } from '@/services/food/fromCatalog';
+import {
+  addPortion,
+  editPortion,
+  makePortionDefault,
+  removePortion,
+} from '@/services/food/portions';
 import { nutrientsForGrams, resolveGrams } from '@/lib/nutrition';
 import { resolveNutrientBasis } from '@/lib/validation/food';
 import { addDays, eachLogDate, toLogDate } from '@/lib/time';
@@ -413,6 +420,242 @@ if (corrected.ok) {
     JSON.stringify(refixed.overriddenFields)
   );
 }
+
+// --- Eigene Maßeinheiten ---------------------------------------------------
+console.log('\neigene maßeinheiten');
+
+await db.delete(foods).where(eq(foods.name, 'Testei'));
+const [unitFood] = await db
+  .insert(foods)
+  .values({
+    createdByUserId: user.id,
+    name: 'Testei',
+    source: 'manual',
+    kcal100: 155,
+    // Deliberately not 58: syncDefaultPortion has to overwrite this the moment
+    // the first measure exists, and a matching value would not prove it.
+    defaultPortionGrams: 100,
+  })
+  .returning({ id: foods.id });
+
+// The case the feature exists for: nobody knows what one weighs, ten on a scale
+// is a number you can read off.
+check(
+  'a measure can be added by weighing a batch',
+  (await addPortion(unitFood.id, 'Stück', {
+    mode: 'weighed',
+    count: 10,
+    totalAmount: 580,
+  })).ok
+);
+
+const [firstUnit] = await db
+  .select()
+  .from(foodPortions)
+  .where(eq(foodPortions.foodId, unitFood.id));
+check(
+  '10 at 580 g is stored as 58 g each',
+  firstUnit?.grams === 58,
+  String(firstUnit?.grams)
+);
+check('the first measure of a food becomes its default', firstUnit?.isDefault === true);
+
+const [afterFirst] = await db
+  .select({ grams: foods.defaultPortionGrams })
+  .from(foods)
+  .where(eq(foods.id, unitFood.id));
+check(
+  'and food.default_portion_grams follows it, so "je 1 Portion" means the same thing',
+  afterFirst.grams === 58,
+  String(afterFirst.grams)
+);
+
+const dupe = await addPortion(unitFood.id, 'stück', { mode: 'direct', amount: 40 });
+check(
+  'a second measure of the same name is refused in German, not by index name',
+  !dupe.ok && dupe.error.includes('gibt es bei diesem Lebensmittel schon'),
+  dupe.ok ? 'accepted' : dupe.error
+);
+
+const zero = await addPortion(unitFood.id, 'Nichts', { mode: 'direct', amount: 0 });
+check('a weight of 0 never reaches the check constraint', !zero.ok);
+
+check(
+  'a second measure can be derived from calories per unit',
+  (await addPortion(unitFood.id, 'Hälfte', {
+    mode: 'kcal',
+    kcalPerUnit: 45,
+  })).ok
+);
+const [half] = await db
+  .select({ grams: foodPortions.grams, isDefault: foodPortions.isDefault })
+  .from(foodPortions)
+  .where(
+    and(eq(foodPortions.foodId, unitFood.id), eq(foodPortions.labelDe, 'Hälfte'))
+  );
+check(
+  '45 kcal against 155 kcal per 100 g is 29,03 g',
+  half?.grams === 29.03,
+  String(half?.grams)
+);
+check('and it does not steal the default', half?.isDefault === false);
+
+// A partial unique index is not deferrable, so the flag has to be cleared
+// before it is set. Moving the default in one statement fails here.
+const [halfRow] = await db
+  .select({ id: foodPortions.id })
+  .from(foodPortions)
+  .where(
+    and(eq(foodPortions.foodId, unitFood.id), eq(foodPortions.labelDe, 'Hälfte'))
+  );
+check('the default can be moved without violating the partial unique index',
+  (await makePortionDefault(halfRow.id)).ok);
+const defaults = await db
+  .select({ id: foodPortions.id })
+  .from(foodPortions)
+  .where(
+    and(eq(foodPortions.foodId, unitFood.id), eq(foodPortions.isDefault, true))
+  );
+check('exactly one measure is default afterwards', defaults.length === 1,
+  String(defaults.length));
+check('and it is the one that was chosen', defaults[0]?.id === halfRow.id);
+
+const [afterMove] = await db
+  .select({ grams: foods.defaultPortionGrams })
+  .from(foods)
+  .where(eq(foods.id, unitFood.id));
+check(
+  'moving the default moves food.default_portion_grams with it',
+  afterMove.grams === 29.03,
+  String(afterMove.grams)
+);
+
+// Renaming and re-weighing, which was impossible before this existed at all.
+check('a measure can be re-weighed',
+  (await editPortion(halfRow.id, 'Halbes Stück', { mode: 'direct', amount: 30 })).ok);
+const [renamed] = await db
+  .select({ labelDe: foodPortions.labelDe, grams: foodPortions.grams })
+  .from(foodPortions)
+  .where(eq(foodPortions.id, halfRow.id));
+check('name and weight both changed',
+  renamed.labelDe === 'Halbes Stück' && renamed.grams === 30,
+  `${renamed.labelDe} / ${renamed.grams}`);
+
+// --- Deleting a measure must not touch what was already logged -------------
+const [unitMeal] = await db
+  .insert(meals)
+  .values({
+    userId: user.id,
+    slot: 'breakfast',
+    occurredAt: new Date('2024-03-11T07:30:00Z'),
+    logDate: '2024-03-11',
+  })
+  .returning({ id: meals.id });
+const loggedGrams = resolveGrams({
+  quantity: 2,
+  unit: 'portion',
+  portionGrams: firstUnit.grams,
+  defaultPortionGrams: null,
+});
+await db.insert(mealItems).values({
+  mealId: unitMeal.id,
+  foodId: unitFood.id,
+  quantity: 2,
+  unit: 'portion',
+  portionId: firstUnit.id,
+  grams: loggedGrams,
+  ...nutrientsForGrams({ kcal100: 155, protein100: null, fat100: null,
+    satFat100: null, carbs100: null, sugar100: null, fiber100: null,
+    salt100: null }, loggedGrams),
+});
+check('2 x 58 g resolves to 116 g', loggedGrams === 116, String(loggedGrams));
+
+// The bug the unit picker had to fix on the way: the row editor never sent
+// portion_id back, so every amount correction silently detached the measure and
+// re-resolved the grams from default_portion_grams ?? 100. The action always
+// took the id; nothing sent it.
+const keptPortion = resolveGrams({
+  quantity: 3,
+  unit: 'portion',
+  portionGrams: firstUnit.grams,
+  defaultPortionGrams: null,
+});
+const droppedPortion = resolveGrams({
+  quantity: 3,
+  unit: 'portion',
+  portionGrams: null,
+  defaultPortionGrams: afterMove.grams,
+});
+check(
+  'keeping portion_id on an amount change resolves 3 x 58 g, not 3 x the default',
+  keptPortion === 174 && droppedPortion !== keptPortion,
+  `${keptPortion} vs ${droppedPortion}`
+);
+
+check('the measure a meal was logged against can still be deleted',
+  (await removePortion(firstUnit.id)).ok);
+const [orphaned] = await db
+  .select({
+    portionId: mealItems.portionId,
+    grams: mealItems.grams,
+    kcal: mealItems.kcal,
+  })
+  .from(mealItems)
+  .where(eq(mealItems.mealId, unitMeal.id));
+check('the logged item loses only the reference (ON DELETE SET NULL)',
+  orphaned.portionId === null);
+check('its frozen amount and nutrients stand',
+  orphaned.grams === 116 && orphaned.kcal === 179.8,
+  `${orphaned.grams} g / ${orphaned.kcal} kcal`);
+
+// Deleting the last remaining default has to promote a survivor, or quickAddFood
+// silently falls back to default_portion_grams for a food that plainly has one.
+await addPortion(unitFood.id, 'Dotter', { mode: 'direct', amount: 18 });
+const [defaultNow] = await db
+  .select({ id: foodPortions.id })
+  .from(foodPortions)
+  .where(
+    and(eq(foodPortions.foodId, unitFood.id), eq(foodPortions.isDefault, true))
+  );
+await removePortion(defaultNow.id);
+const survivors = await db
+  .select({
+    labelDe: foodPortions.labelDe,
+    grams: foodPortions.grams,
+    isDefault: foodPortions.isDefault,
+  })
+  .from(foodPortions)
+  .where(eq(foodPortions.foodId, unitFood.id));
+check('deleting the default promotes the next measure',
+  survivors.length === 1 && survivors[0].isDefault === true,
+  JSON.stringify(survivors));
+const [afterPromote] = await db
+  .select({ grams: foods.defaultPortionGrams })
+  .from(foods)
+  .where(eq(foods.id, unitFood.id));
+check('and default_portion_grams follows the promotion',
+  afterPromote.grams === survivors[0]?.grams,
+  `${afterPromote.grams} vs ${survivors[0]?.grams}`);
+
+// The last measure gone leaves the nameless weight standing: every manually
+// created food has one and no portion row, and those must keep working.
+await removePortion(
+  (
+    await db
+      .select({ id: foodPortions.id })
+      .from(foodPortions)
+      .where(eq(foodPortions.foodId, unitFood.id))
+  )[0].id
+);
+const [afterLast] = await db
+  .select({ grams: foods.defaultPortionGrams })
+  .from(foods)
+  .where(eq(foods.id, unitFood.id));
+check('removing the last measure leaves default_portion_grams alone',
+  afterLast.grams === 18, String(afterLast.grams));
+
+await db.delete(meals).where(eq(meals.id, unitMeal.id));
+await db.delete(foods).where(eq(foods.id, unitFood.id));
 
 // --- Symptom entries -------------------------------------------------------
 console.log('\nsymptoms');

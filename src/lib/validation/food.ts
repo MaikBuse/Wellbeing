@@ -292,3 +292,210 @@ export function enteredValues(input: {
     salt100: input.salt100 ?? null,
   };
 }
+
+/* -------------------------------------------------------------------------- */
+/*  Eigene Maßeinheiten                                                        */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * How the weight of a household measure is arrived at.
+ *
+ * `direct` is the old behaviour — type the grams yourself. The other two exist
+ * because for the case this feature was built for, an egg, nobody knows the
+ * number: you know that ten of them weigh 580 g, or that the packet claims
+ * 90 kcal apiece.
+ */
+export const portionGramsMode = z.enum(['direct', 'weighed', 'kcal']);
+export type PortionGramsMode = z.infer<typeof portionGramsMode>;
+
+export type PortionGramsField =
+  | 'amount'
+  | 'count'
+  | 'totalAmount'
+  | 'kcalPerUnit';
+
+export type PortionGramsResolution =
+  | { ok: true; grams: number }
+  | { ok: false; error: string; field: PortionGramsField };
+
+export type PortionGramsEntry = {
+  mode: PortionGramsMode;
+  /** `direct`: the weight itself. */
+  amount: number | null;
+  /** `weighed`: how many were on the scale. */
+  count: number | null;
+  /** `weighed`: what they weighed together. */
+  totalAmount: number | null;
+  /** `kcal`: the calories of ONE of them. */
+  kcalPerUnit: number | null;
+  /** The food's stored energy, per 100 of `unit`. Only the `kcal` mode uses it. */
+  kcal100: number | null;
+  /**
+   * The food's basis unit. `food_portion.grams` is an amount in THIS unit, not
+   * in grams — `resolveGrams` multiplies it by the quantity and hands the
+   * product to `nutrientsForGrams`, which divides by 100 and multiplies by the
+   * per-100 columns. Those are per 100 of the basis unit, so a millilitre basis
+   * has to stay millilitres all the way through. No density is applied here;
+   * see the note on `per100FromReference`.
+   */
+  unit: 'g' | 'ml';
+};
+
+function round2(value: number): number {
+  return Math.round(value * 100) / 100;
+}
+
+/**
+ * Turn whatever was entered into the weight of one unit, or refuse with a German
+ * message naming the field at fault.
+ *
+ * Pure, and shared by the server action and the client preview — the preview has
+ * to call THIS rather than its own arithmetic, or it promises a number the
+ * server will not store. Same reasoning as `resolveNutrientBasis` above, and the
+ * same result-side validation: a division is the one place NaN gets made, and
+ * `numeric(10,2)` REJECTS Infinity while silently ACCEPTING NaN.
+ */
+export function resolvePortionGrams(
+  entry: PortionGramsEntry
+): PortionGramsResolution {
+  const unit = entry.unit;
+
+  let grams: number;
+  let field: PortionGramsField;
+
+  if (entry.mode === 'direct') {
+    field = 'amount';
+    const amount = entry.amount;
+    if (amount === null || !Number.isFinite(amount) || amount <= 0) {
+      return {
+        ok: false,
+        field,
+        error: `Bitte das Gewicht in ${unit} angeben, größer als 0.`,
+      };
+    }
+    grams = amount;
+  } else if (entry.mode === 'weighed') {
+    const count = entry.count;
+    // Not just > 0: half an egg cannot be counted onto a scale, and a fractional
+    // count is far more likely a mistyped total than a real input.
+    if (count === null || !Number.isInteger(count) || count < 1) {
+      return {
+        ok: false,
+        field: 'count',
+        error: 'Die Anzahl muss eine ganze Zahl ab 1 sein.',
+      };
+    }
+    const total = entry.totalAmount;
+    if (total === null || !Number.isFinite(total) || total <= 0) {
+      return {
+        ok: false,
+        field: 'totalAmount',
+        error: `Bitte das Gesamtgewicht in ${unit} angeben, größer als 0.`,
+      };
+    }
+    field = 'totalAmount';
+    grams = total / count;
+  } else {
+    field = 'kcalPerUnit';
+    const per100 = entry.kcal100;
+    if (per100 === null || !Number.isFinite(per100) || per100 <= 0) {
+      return {
+        ok: false,
+        field,
+        error:
+          `Dafür braucht dieses Lebensmittel einen Kalorienwert je 100 ${unit}. ` +
+          'Trag ihn oben unter „Nährwerte ändern“ ein.',
+      };
+    }
+    const kcal = entry.kcalPerUnit;
+    if (kcal === null || !Number.isFinite(kcal) || kcal <= 0) {
+      return {
+        ok: false,
+        field,
+        error: 'Bitte die Kalorien einer Einheit angeben, größer als 0.',
+      };
+    }
+    grams = (100 * kcal) / per100;
+  }
+
+  grams = round2(grams);
+
+  // The RESULT is what gets validated, not the inputs. Every input above can
+  // look perfectly ordinary and still produce this: "1.000" is 1 to Number, so a
+  // kilo sack entered with a German thousands point makes every unit 1000x too
+  // light, and only a bound on the outcome notices.
+  if (!Number.isFinite(grams) || grams <= 0) {
+    return { ok: false, field, error: 'Das ergibt kein gültiges Gewicht.' };
+  }
+  if (grams > MAX_REFERENCE) {
+    return {
+      ok: false,
+      field,
+      error:
+        `Das ergibt ${formatGermanNumber(grams, 2)} ${unit} je Einheit – ` +
+        `höchstens ${MAX_REFERENCE} ${unit} sind möglich. ` +
+        'Ein Tausenderpunkt zählt nicht: „1.000“ liest die App als 1.',
+    };
+  }
+
+  return { ok: true, grams };
+}
+
+/**
+ * A unit's name.
+ *
+ * Free text on purpose — there is no `unit_def` table. 40 characters is room for
+ * „mittelgroße Scheibe“ and not for a sentence.
+ */
+export const portionLabel = z
+  .string()
+  .trim()
+  .min(1, 'Der Name der Einheit fehlt')
+  .max(40, 'Der Name darf höchstens 40 Zeichen haben');
+
+const portionGramsEntries = {
+  mode: portionGramsMode.default('direct'),
+  amount: optionalGermanNumber.optional(),
+  count: optionalGermanNumber.optional(),
+  totalAmount: optionalGermanNumber.optional(),
+  kcalPerUnit: optionalGermanNumber.optional(),
+};
+
+export const createFoodPortionSchema = z.object({
+  foodId: uuid,
+  labelDe: portionLabel,
+  ...portionGramsEntries,
+});
+
+export const updateFoodPortionSchema = z.object({
+  portionId: uuid,
+  labelDe: portionLabel,
+  ...portionGramsEntries,
+});
+
+export const foodPortionIdSchema = z.object({ portionId: uuid });
+
+export type CreateFoodPortionInput = z.input<typeof createFoodPortionSchema>;
+export type UpdateFoodPortionInput = z.input<typeof updateFoodPortionSchema>;
+
+/** The grams entry, gathered off a parsed portion payload. */
+export function portionGramsEntry(
+  input: {
+    mode: PortionGramsMode;
+    amount?: number | null;
+    count?: number | null;
+    totalAmount?: number | null;
+    kcalPerUnit?: number | null;
+  },
+  food: { kcal100: number | null; unit: 'g' | 'ml' }
+): PortionGramsEntry {
+  return {
+    mode: input.mode,
+    amount: input.amount ?? null,
+    count: input.count ?? null,
+    totalAmount: input.totalAmount ?? null,
+    kcalPerUnit: input.kcalPerUnit ?? null,
+    kcal100: food.kcal100,
+    unit: food.unit,
+  };
+}

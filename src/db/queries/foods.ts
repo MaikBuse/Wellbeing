@@ -232,3 +232,23 @@ export async function allTagDefs() {
     .where(isNull(foodTagDefs.userId))
     .orderBy(foodTagDefs.sortOrder);
 }
+
+/**
+ * The unit names already in use, most common first.
+ *
+ * No user filter, by design: `food_portion` belongs to the shared catalog, and
+ * the point of the list is that the household measure someone spelled once is
+ * offered as a chip everywhere else rather than retyped.
+ */
+export async function distinctPortionLabels(limit = 20): Promise<string[]> {
+  const rows = await db
+    .select({
+      labelDe: sql<string>`min(${foodPortions.labelDe})`,
+      uses: sql<number>`count(*)::int`,
+    })
+    .from(foodPortions)
+    .groupBy(sql`lower(${foodPortions.labelDe})`)
+    .orderBy(sql`count(*) desc`)
+    .limit(limit);
+  return rows.map((row) => row.labelDe);
+}

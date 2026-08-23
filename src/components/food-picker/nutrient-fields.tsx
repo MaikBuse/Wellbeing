@@ -192,9 +192,9 @@ export function NutrientFields({
       draft.basisKind === 'portion' &&
       portionGrams === null ? (
         <FieldError>
-          Für „je 1 Portion“ fehlt das Portionsgewicht. Es lässt sich hier nicht
-          ändern, weil daran auch die Menge jeder künftig erfassten Portion
-          hängt.
+          Für „je 1 Portion“ fehlt das Portionsgewicht. Es wird unter
+          „Einheiten“ gepflegt, weil daran auch die Menge jeder künftig
+          erfassten Portion hängt.
         </FieldError>
       ) : null}
 

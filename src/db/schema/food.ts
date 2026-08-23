@@ -248,6 +248,10 @@ export const foodPortions = pgTable(
     uniqueIndex('food_portion_default_uq')
       .on(t.foodId)
       .where(sql`${t.isDefault}`),
+    // Two rows called "Stück" on one food are a data error, not a use case —
+    // and in a catalog every account shares, the one who created the duplicate
+    // is rarely the one who has to make sense of it later.
+    uniqueIndex('food_portion_label_uq').on(t.foodId, sql`lower(${t.labelDe})`),
     check('food_portion_grams_positive', sql`${t.grams} > 0`),
   ]
 );

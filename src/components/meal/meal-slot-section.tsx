@@ -10,6 +10,7 @@ import {
   updateMealItem,
 } from '@/actions/meals';
 import { Button } from '@/components/ui/button';
+import { Chip, ChipRow } from '@/components/ui/chip';
 import { Input } from '@/components/ui/field';
 import { FoodPicker } from '@/components/food-picker/food-picker';
 import { ReactionDisclosure } from '@/components/symptom/reaction-disclosure';
@@ -17,7 +18,13 @@ import type { SymptomTypeOption } from '@/components/symptom/reaction-sheet';
 import { SymptomEntryRow } from '@/components/symptom/symptom-entry-row';
 import type { DayMeal } from '@/db/queries/day';
 import type { FoodListItem } from '@/db/queries/foods';
-import { formatGermanNumber, formatKcal, sumNutrients } from '@/lib/nutrition';
+import {
+  formatGermanNumber,
+  formatKcal,
+  parseGermanNumber,
+  resolveGrams,
+  sumNutrients,
+} from '@/lib/nutrition';
 import {
   MEAL_SLOT_LABELS,
   type MealSlotKey,
@@ -318,6 +325,91 @@ function MealTime({
   );
 }
 
+/**
+ * One unit the amount can be counted in.
+ *
+ * `key` exists because a chip is identified by more than its portion id: the
+ * gram chip has none, and neither does the fallback that leans on the food's own
+ * `defaultPortionGrams`.
+ */
+type UnitChoice = {
+  key: string;
+  label: string;
+  unit: 'g' | 'ml' | 'piece' | 'portion';
+  portionId: string | null;
+  /** What one of it weighs, for the chip's own caption. Null for g/ml. */
+  grams: number | null;
+};
+
+/**
+ * The units this item can be logged in.
+ *
+ * The `piece` enum value is deliberately not produced here. `resolveGrams`
+ * treats it exactly like `portion`, and a unit called „Stück" is a
+ * `food_portion` row — giving it a second home in the enum would be two
+ * truths for one thing.
+ */
+function unitChoices(item: DayMeal['items'][number]): UnitChoice[] {
+  const choices: UnitChoice[] = item.portions.map((portion) => ({
+    key: `portion:${portion.id}`,
+    label: portion.labelDe,
+    unit: 'portion' as const,
+    portionId: portion.id,
+    grams: portion.grams,
+  }));
+
+  // A food with no named measure still has the nameless weight the create form
+  // writes. Offering it keeps the chip row from being a single gram button on
+  // every food nobody has maintained yet.
+  if (choices.length === 0) {
+    choices.push({
+      key: 'default',
+      label: 'Portion',
+      unit: 'portion',
+      portionId: null,
+      grams: item.defaultPortionGrams,
+    });
+  }
+
+  choices.push({
+    key: 'basis',
+    label: item.basisUnit,
+    unit: item.basisUnit,
+    portionId: null,
+    grams: null,
+  });
+
+  return choices;
+}
+
+function choiceFor(
+  item: DayMeal['items'][number],
+  choices: UnitChoice[]
+): UnitChoice {
+  if (item.unit === 'g' || item.unit === 'ml') {
+    return choices.find((c) => c.key === 'basis') ?? choices[0];
+  }
+  if (item.portionId) {
+    const match = choices.find((c) => c.portionId === item.portionId);
+    if (match) return match;
+  }
+  return choices[0];
+}
+
+/** The amount of the row, in words: "2 Stück (116 g)" or just "116 g". */
+function amountLabel(
+  item: DayMeal['items'][number],
+  choice: UnitChoice
+): string {
+  if (choice.unit === 'g' || choice.unit === 'ml') {
+    return `${formatGermanNumber(item.grams, 1)} ${choice.unit}`;
+  }
+  return (
+    `${formatGermanNumber(item.quantity, 2)} ${choice.label} ` +
+    `(${formatGermanNumber(item.grams, 1)} ${item.basisUnit})`
+  );
+}
+
 function MealItemRow({
   item,
   index,
@@ -327,17 +419,52 @@ function MealItemRow({
   index: number;
   readOnly: boolean;
 }) {
+  const choices = unitChoices(item);
+  const stored = choiceFor(item, choices);
+
   const [editing, setEditing] = useState(false);
   const [quantity, setQuantity] = useState(
     formatGermanNumber(item.quantity, 2)
   );
+  const [choiceKey, setChoiceKey] = useState(stored.key);
   const [pending, startTransition] = useTransition();
+
+  const choice = choices.find((c) => c.key === choiceKey) ?? stored;
+  const parsed = parseGermanNumber(quantity);
+
+  // The same function the server uses, for the same reason the nutrient editor
+  // previews through `resolveNutrientBasis`: a preview that does its own
+  // arithmetic promises an amount that may not be the one that gets stored.
+  const preview =
+    parsed !== null && parsed > 0
+      ? resolveGrams({
+          quantity: parsed,
+          unit: choice.unit,
+          portionGrams: choice.grams,
+          defaultPortionGrams: item.defaultPortionGrams,
+          // Read from the row rather than assumed to be 1: the server reads the
+          // column, and a preview that quietly disagrees with what gets stored
+          // is worse than no preview.
+          densityGPerMl: item.densityGPerMl,
+        })
+      : null;
+
+  function open() {
+    setQuantity(formatGermanNumber(item.quantity, 2));
+    setChoiceKey(stored.key);
+    setEditing(true);
+  }
 
   function save() {
     const formData = new FormData();
     formData.set('mealItemId', item.id);
     formData.set('quantity', quantity);
-    formData.set('unit', item.unit);
+    formData.set('unit', choice.unit);
+    // Sent explicitly, including when it is empty. Leaving it out used to make
+    // every amount correction silently drop the named measure the item was
+    // logged against, and the grams were then re-resolved from
+    // `defaultPortionGrams ?? 100`.
+    formData.set('portionId', choice.portionId ?? '');
     startTransition(async () => {
       const result = await updateMealItem(formData);
       if (result.ok) {
@@ -357,51 +484,98 @@ function MealItemRow({
 
   return (
     <li
-      className="rise-in flex items-center gap-2 py-2"
+      className="rise-in py-2"
       style={{ '--i': index } as React.CSSProperties}
     >
-      <div className="min-w-0 flex-1">
-        <p className="truncate text-base text-fg">{item.foodName}</p>
-        <p className="num text-xs text-muted">
-          {Math.round(item.grams)} g · {formatKcal(item.kcal)}
-        </p>
+      <div className="flex items-center gap-2">
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-base text-fg">{item.foodName}</p>
+          <p className="num text-xs text-muted">
+            {amountLabel(item, stored)} · {formatKcal(item.kcal)}
+          </p>
+        </div>
+
+        {readOnly ? null : editing ? null : (
+          <div className="flex items-center gap-1">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={open}
+              aria-label={`Menge von ${item.foodName} anpassen`}
+            >
+              Menge
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={remove}
+              disabled={pending}
+              aria-label={`${item.foodName} entfernen`}
+            >
+              <Trash2 aria-hidden className="size-4 text-muted" />
+            </Button>
+          </div>
+        )}
       </div>
 
-      {readOnly ? null : editing ? (
-        <div className="flex items-center gap-2">
-          <Input
-            type="text"
-            inputMode="decimal"
-            value={quantity}
-            onChange={(event) => setQuantity(event.target.value)}
-            className="w-20 text-center"
-            aria-label="Menge"
-          />
-          <Button size="sm" onClick={save} disabled={pending}>
-            OK
-          </Button>
+      {!readOnly && editing ? (
+        <div className="mt-2 space-y-2 rounded-control border border-line bg-bg-sunken p-2">
+          <div className="flex items-center gap-2">
+            <Input
+              type="text"
+              inputMode="decimal"
+              value={quantity}
+              onChange={(event) => setQuantity(event.target.value)}
+              className="w-20 text-center"
+              aria-label="Menge"
+              autoFocus
+            />
+            <ChipRow className="flex-1">
+              {choices.map((option) => (
+                <Chip
+                  key={option.key}
+                  selected={option.key === choice.key}
+                  disabled={pending}
+                  onClick={() => setChoiceKey(option.key)}
+                >
+                  {option.label}
+                  {option.grams !== null ? (
+                    // opacity, not text-muted: a fixed grey on the selected
+                    // chip's filled background is unreadable.
+                    <span className="num opacity-70">
+                      {formatGermanNumber(option.grams, 1)} {item.basisUnit}
+                    </span>
+                  ) : null}
+                </Chip>
+              ))}
+            </ChipRow>
+          </div>
+          <div className="flex items-center justify-between gap-2">
+            <p className="num text-xs text-muted">
+              {preview === null
+                ? '–'
+                : `= ${formatGermanNumber(preview, 1)} ${item.basisUnit}`}
+            </p>
+            <div className="flex items-center gap-1">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setEditing(false)}
+                disabled={pending}
+              >
+                Abbrechen
+              </Button>
+              <Button
+                size="sm"
+                onClick={save}
+                disabled={pending || preview === null}
+              >
+                OK
+              </Button>
+            </div>
+          </div>
         </div>
-      ) : (
-        <div className="flex items-center gap-1">
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => setEditing(true)}
-            aria-label={`Menge von ${item.foodName} anpassen`}
-          >
-            Menge
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={remove}
-            disabled={pending}
-            aria-label={`${item.foodName} entfernen`}
-          >
-            <Trash2 aria-hidden className="size-4 text-muted" />
-          </Button>
-        </div>
-      )}
+      ) : null}
     </li>
   );
 }

@@ -1,10 +1,16 @@
 import { notFound } from 'next/navigation';
 import { requireUser } from '@/auth.helpers';
-import { allTagDefs, getFoodDetail } from '@/db/queries/foods';
+import {
+  allTagDefs,
+  distinctPortionLabels,
+  getFoodDetail,
+} from '@/db/queries/foods';
 import { Card, CardMeta, CardTitle } from '@/components/ui/card';
 import { PageHeader } from '@/components/ui/page-header';
 import { NutrientEditor } from '@/components/food-picker/nutrient-editor';
+import { PortionEditor } from '@/components/food-picker/portion-editor';
 import { TagEditor } from '@/components/food-picker/tag-editor';
+import { portionLabelSuggestions } from '@/lib/food-units';
 import { formatGermanNumber, formatGrams, formatKcal } from '@/lib/nutrition';
 
 export const metadata = { title: 'Lebensmittel – Wellbeing' };
@@ -16,7 +22,11 @@ export default async function FoodDetailPage({
 }) {
   await requireUser();
   const { id } = await params;
-  const [detail, tags] = await Promise.all([getFoodDetail(id), allTagDefs()]);
+  const [detail, tags, usedLabels] = await Promise.all([
+    getFoodDetail(id),
+    allTagDefs(),
+    distinctPortionLabels(),
+  ]);
   if (!detail) notFound();
   const { food, portions } = detail;
 
@@ -81,35 +91,42 @@ export default async function FoodDetailPage({
         </div>
       </Card>
 
-      {/* `defaultPortionGrams` gets a line of its own, not just the named
-          `food_portion` rows. A manually created food never gets one of those,
-          so a food whose nutrients were entered "je 1 Portion" used to show an
-          empty card while the weight everything was divided by stayed invisible.
-          It is also the amount every logged portion of this food counts as. */}
-      {portions.length > 0 || food.defaultPortionGrams !== null ? (
-        <Card>
-          <CardTitle>Portionen</CardTitle>
-          <ul className="mt-2 space-y-1 text-sm">
-            {portions.map((portion) => (
-              <li key={portion.id} className="flex justify-between">
-                <span className="text-fg">{portion.labelDe}</span>
-                <span className="text-muted">
-                  <span className="num">{Math.round(portion.grams)} g</span>
-                  {portion.isDefault ? ' (Standard)' : ''}
-                </span>
-              </li>
-            ))}
-            {food.defaultPortionGrams !== null ? (
-              <li className="flex justify-between">
-                <span className="text-fg">Übliche Portion</span>
-                <span className="num text-muted">
-                  {formatGermanNumber(food.defaultPortionGrams, 1)} {basisUnit}
-                </span>
-              </li>
-            ) : null}
-          </ul>
-        </Card>
-      ) : null}
+      {/* One card, one place to maintain a measure. `defaultPortionGrams` keeps
+          a line of its own only while there is no `food_portion` row: from the
+          first one on it mirrors the default row (`syncDefaultPortion`), and
+          printing both would be the same number twice under two names. */}
+      <Card>
+        <CardTitle>Einheiten</CardTitle>
+        <CardMeta className="mt-1">
+          Was eine Portion, ein Stück oder eine Scheibe wiegt. Beim Erfassen
+          lässt sich damit die Menge in dieser Einheit angeben statt in{' '}
+          {basisUnit}.
+        </CardMeta>
+        <div className="mt-3">
+          <PortionEditor
+            foodId={food.id}
+            portions={portions.map((portion) => ({
+              id: portion.id,
+              labelDe: portion.labelDe,
+              grams: portion.grams,
+              isDefault: portion.isDefault,
+            }))}
+            suggestions={portionLabelSuggestions(usedLabels)}
+            kcal100={food.kcal100}
+            basisUnit={basisUnit}
+          />
+        </div>
+        {portions.length === 0 && food.defaultPortionGrams !== null ? (
+          <p className="mt-3 border-t border-line-soft pt-2 text-sm text-muted">
+            Übliche Portion:{' '}
+            <span className="num text-fg">
+              {formatGermanNumber(food.defaultPortionGrams, 1)} {basisUnit}
+            </span>{' '}
+            – ohne Namen, aus dem Anlege-Formular. Die erste Einheit hier ersetzt
+            sie.
+          </p>
+        ) : null}
+      </Card>
 
       <Card>
         <CardTitle>Enthält</CardTitle>

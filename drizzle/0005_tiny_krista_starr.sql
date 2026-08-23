@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX "food_portion_label_uq" ON "food_portion" USING btree ("food_id",lower("label_de"));

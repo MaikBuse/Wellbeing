@@ -3,6 +3,7 @@ import { db } from '../index';
 import {
   dailyLogJoints,
   dailyLogs,
+  foodPortions,
   foods,
   joints,
   mealItems,
@@ -13,6 +14,14 @@ import {
 } from '../schema';
 import type { LogDate } from '@/lib/time';
 
+/** One household measure a logged food can be counted in. */
+export type DayPortionOption = {
+  id: string;
+  labelDe: string;
+  grams: number;
+  isDefault: boolean;
+};
+
 export type DayMealItem = {
   id: string;
   foodId: string;
@@ -21,10 +30,21 @@ export type DayMealItem = {
   grams: number;
   quantity: number;
   unit: 'g' | 'ml' | 'piece' | 'portion';
+  /** Which named measure the quantity counts, if any. */
+  portionId: string | null;
   kcal: number | null;
   proteinG: number | null;
   fatG: number | null;
   carbsG: number | null;
+  /**
+   * Everything needed to re-resolve the amount in the row itself, so the unit
+   * picker can preview grams without a round trip. Mirrors what `resolveGrams`
+   * reads on the server.
+   */
+  basisUnit: 'g' | 'ml';
+  defaultPortionGrams: number | null;
+  densityGPerMl: number | null;
+  portions: DayPortionOption[];
 };
 
 export type DayReaction = {
@@ -75,6 +95,10 @@ export async function getDayMeals(
         grams: mealItems.grams,
         quantity: mealItems.quantity,
         unit: mealItems.unit,
+        portionId: mealItems.portionId,
+        basisUnit: foods.basisUnit,
+        defaultPortionGrams: foods.defaultPortionGrams,
+        densityGPerMl: foods.densityGPerMl,
         kcal: mealItems.kcal,
         proteinG: mealItems.proteinG,
         fatG: mealItems.fatG,
@@ -100,6 +124,37 @@ export async function getDayMeals(
       // order was whatever Postgres returned.
       .orderBy(asc(symptomEntries.occurredAt)),
   ]);
+
+  // One extra query over the day's distinct foods, not one per row: a day with
+  // twelve items usually has fewer than twelve foods, and the picker needs the
+  // same list for every row that shares a food.
+  const foodIds = [...new Set(itemRows.map((i) => i.foodId))];
+  const portionRows =
+    foodIds.length > 0
+      ? await db
+          .select({
+            id: foodPortions.id,
+            foodId: foodPortions.foodId,
+            labelDe: foodPortions.labelDe,
+            grams: foodPortions.grams,
+            isDefault: foodPortions.isDefault,
+          })
+          .from(foodPortions)
+          .where(inArray(foodPortions.foodId, foodIds))
+          .orderBy(asc(foodPortions.sortOrder), asc(foodPortions.labelDe))
+      : [];
+
+  const portionsByFood = new Map<string, DayPortionOption[]>();
+  for (const row of portionRows) {
+    const list = portionsByFood.get(row.foodId) ?? [];
+    list.push({
+      id: row.id,
+      labelDe: row.labelDe,
+      grams: row.grams,
+      isDefault: row.isDefault,
+    });
+    portionsByFood.set(row.foodId, list);
+  }
 
   const reactionIds = reactionRows.map((r) => r.id);
   const symptomRows =
@@ -136,10 +191,17 @@ export async function getDayMeals(
         grams: i.grams,
         quantity: i.quantity,
         unit: i.unit,
+        portionId: i.portionId,
         kcal: i.kcal,
         proteinG: i.proteinG,
         fatG: i.fatG,
         carbsG: i.carbsG,
+        // The enum allows 'piece' and 'portion' here; nutrients are per 100 of a
+        // mass or a volume and nothing else, so anything but 'ml' reads as g.
+        basisUnit: i.basisUnit === 'ml' ? ('ml' as const) : ('g' as const),
+        defaultPortionGrams: i.defaultPortionGrams,
+        densityGPerMl: i.densityGPerMl,
+        portions: portionsByFood.get(i.foodId) ?? [],
       })),
     reactions: reactionRows
       .filter((r) => r.mealId === meal.id)
