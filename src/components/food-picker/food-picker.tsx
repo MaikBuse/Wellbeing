@@ -3,7 +3,12 @@
 import { useEffect, useRef, useState, useTransition } from 'react';
 import { Loader2, Plus, Search } from 'lucide-react';
 import { toast } from 'sonner';
-import { createFoodFromCatalog, searchCatalogAction, searchFoodsAction } from '@/actions/foods';
+import {
+  createFoodFromCatalog,
+  searchCatalogAction,
+  searchFoodsAction,
+} from '@/actions/foods';
+import { isSearchable } from '@/lib/search/terms';
 import { quickAddFood } from '@/actions/meals';
 import { Chip, ChipRow } from '@/components/ui/chip';
 import { Input } from '@/components/ui/field';
@@ -58,7 +63,7 @@ export function FoodPicker({
 
   useEffect(() => {
     const term = query.trim();
-    if (term.length < 2) return;
+    if (!isSearchable(term)) return;
     const id = ++requestId.current;
     const timer = setTimeout(() => {
       setSearching(true);
@@ -131,9 +136,9 @@ export function FoodPicker({
   const term = query.trim();
   // Derived, not synced: results only count while they match what is typed.
   const matching =
-    term.length >= 2 && results?.term === term ? results.rows : null;
+    isSearchable(term) && results?.term === term ? results.rows : null;
   const catalogHits =
-    term.length >= 2 && catalog?.term === term ? catalog.rows : [];
+    isSearchable(term) && catalog?.term === term ? catalog.rows : [];
   const suggestions = frequent.length > 0 ? frequent : recent;
   const shown = matching ?? suggestions;
   const heading =

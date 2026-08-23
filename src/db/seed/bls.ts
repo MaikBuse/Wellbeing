@@ -13,13 +13,14 @@ import { sql } from 'drizzle-orm';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import { foodCatalog } from '../schema';
 import { BLS_CSV } from './data/bls-4.0';
+import { BLS_ALIASES } from './data/bls-aliases';
 import { BLS_EVERYDAY_CODES } from './data/bls-everyday';
 
 type Database = PostgresJsDatabase<Record<string, unknown>>;
 
 /**
- * Postgres caps a statement at 65535 bound parameters. At 22 columns that is
- * ~2900 rows, so 500 leaves plenty of head-room and keeps each statement small
+ * Postgres caps a statement at 65535 bound parameters. At 23 columns that is
+ * ~2800 rows, so 500 leaves plenty of head-room and keeps each statement small
  * enough that a failure is readable.
  */
 const BATCH_SIZE = 500;
@@ -75,6 +76,7 @@ export function rowsFromCsv(text: string): CatalogSeedRow[] {
   if (!header) throw new Error('BLS_CSV is empty');
   const at = (row: string[], column: string) => row[header.indexOf(column)];
   const everyday = new Set(BLS_EVERYDAY_CODES);
+  const aliases = new Map(BLS_ALIASES.map((a) => [a.code, a.terms]));
 
   return body
     .filter((row) => row.length > 1 && (at(row, 'bls_code') ?? '') !== '')
@@ -83,6 +85,7 @@ export function rowsFromCsv(text: string): CatalogSeedRow[] {
       nameDe: at(row, 'name_de')!,
       groupKey: at(row, 'group_key')!,
       isEveryday: everyday.has(at(row, 'bls_code')!),
+      searchAlias: aliases.get(at(row, 'bls_code')!) ?? null,
       kcal100: numberOrNull(at(row, 'kcal_100')),
       protein100: numberOrNull(at(row, 'protein_100')),
       fat100: numberOrNull(at(row, 'fat_100')),
@@ -121,6 +124,7 @@ export async function seedFoodCatalog(db: Database): Promise<number> {
           nameDe: sql`excluded.name_de`,
           groupKey: sql`excluded.group_key`,
           isEveryday: sql`excluded.is_everyday`,
+          searchAlias: sql`excluded.search_alias`,
           kcal100: sql`excluded.kcal_100`,
           protein100: sql`excluded.protein_100`,
           fat100: sql`excluded.fat_100`,

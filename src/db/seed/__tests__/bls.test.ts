@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { parseCsv, rowsFromCsv } from '../bls';
 import { BLS_CSV } from '../data/bls-4.0';
+import { BLS_ALIASES } from '../data/bls-aliases';
 import { BLS_EVERYDAY_CODES } from '../data/bls-everyday';
 
 describe('parseCsv', () => {
@@ -54,6 +55,39 @@ describe('the committed BLS data', () => {
     const codes = new Set(rows.map((r) => r.blsCode));
     const unknown = BLS_EVERYDAY_CODES.filter((code) => !codes.has(code));
     expect(unknown).toEqual([]);
+  });
+
+  it('resolves every curated alias code', () => {
+    // Same silent-failure risk as the everyday list: a wrong code here means
+    // the alias simply never applies and "Ei" quietly finds Weißwein again.
+    const codes = new Set(rows.map((r) => r.blsCode));
+    const unknown = BLS_ALIASES.map((a) => a.code).filter((c) => !codes.has(c));
+    expect(unknown).toEqual([]);
+  });
+
+  it('lists every code at most once', () => {
+    // The seed builds a Map from this, so a repeated code would keep only the
+    // last entry and drop the other's words without a word.
+    const codes = BLS_ALIASES.map((a) => a.code);
+    expect(new Set(codes).size).toBe(codes.length);
+  });
+
+  it('holds plain space-separated words', () => {
+    // Umlauts are fine — both sides of the comparison are folded in SQL, which
+    // is why { terms: 'käse' } matches someone typing "kaese". Punctuation is
+    // not: it would split one alias into two words that each mean nothing.
+    const odd = BLS_ALIASES.filter(
+      (a) => !/^[\p{Ll}0-9]+( [\p{Ll}0-9]+)*$/u.test(a.terms)
+    );
+    expect(odd).toEqual([]);
+  });
+
+  it('puts the alias on the seeded row', () => {
+    const egg = rows.find((r) => r.blsCode === 'E111100')!;
+    expect(egg.nameDe).toBe('Hühnerei roh');
+    expect(egg.searchAlias).toBe('ei eier');
+    // Everything unlisted stays null rather than ''.
+    expect(rows.find((r) => r.blsCode === 'C133000')!.searchAlias).toBeNull();
   });
 
   it('flags exactly the curated codes as everyday', () => {

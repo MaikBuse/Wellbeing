@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { Plus, ScanLine } from 'lucide-react';
 import { requireUser } from '@/auth.helpers';
 import { recentFoods, searchCatalog, searchFoods } from '@/db/queries/foods';
+import { isSearchable } from '@/lib/search/terms';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { CatalogResults } from '@/components/food-picker/catalog-results';
@@ -20,12 +21,15 @@ export default async function FoodsPage({
   await requireUser();
   const { q } = await searchParams;
   const query = q?.trim() ?? '';
-  const foods =
-    query.length >= 2 ? await searchFoods(query, 50) : await recentFoods(50);
+  const foods = isSearchable(query)
+    ? await searchFoods(query, 50)
+    : await recentFoods(50);
   // The BLS is a fallback, not a competitor to the library: it is only queried
   // once the library itself has come back thin for this term.
   const catalogEntries =
-    query.length >= 2 && foods.length < 5 ? await searchCatalog(query, 15) : [];
+    isSearchable(query) && foods.length < 5
+      ? await searchCatalog(query, 15)
+      : [];
 
   return (
     <main className="space-y-4 p-4">

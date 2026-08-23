@@ -15,6 +15,7 @@ import {
 import { appUsers } from './auth';
 import { foodTagDefs } from './lookup';
 import { createdAt, num, pk, tsz, updatedAt } from './_helpers';
+import { foldExpr, squashExpr } from '../search-expr';
 import { foodSource, portionUnit, tagConfidence, tagSource } from './enums';
 
 /**
@@ -109,6 +110,15 @@ export const foodCatalog = pgTable(
     omega3100: num('omega3_100', 10, 3),
     epaDha100: num('epa_dha_100', 10, 3),
     arachidonic100: num('arachidonic_100', 10, 3),
+    /** Curated extra search words, from seed/data/bls-aliases.ts. */
+    searchAlias: text('search_alias'),
+    /** Normalised for search; see ../search-expr.ts for why these are stored. */
+    searchFolded: text('search_folded').generatedAlwaysAs(
+      foldExpr(sql`"name_de"`)
+    ),
+    searchSquashed: text('search_squashed').generatedAlwaysAs(
+      squashExpr(sql`"name_de"`)
+    ),
     updatedAt: updatedAt(),
   },
   (t) => [
@@ -117,6 +127,8 @@ export const foodCatalog = pgTable(
     index('food_catalog_everyday_idx')
       .on(sql`lower(${t.nameDe})`)
       .where(sql`${t.isEveryday}`),
+    index('food_catalog_search_folded_idx').on(t.searchFolded),
+    index('food_catalog_search_squashed_idx').on(t.searchSquashed),
   ]
 );
 
@@ -186,6 +198,17 @@ export const foods = pgTable(
     useCount: integer('use_count').notNull().default(0),
     lastUsedAt: tsz('last_used_at'),
     archivedAt: tsz('archived_at'),
+    /**
+     * Brand is folded in with the name: the picker searches both, and one
+     * column means one scan and one ranking instead of two that disagree.
+     * See ../search-expr.ts for why these are stored rather than computed.
+     */
+    searchFolded: text('search_folded').generatedAlwaysAs(
+      foldExpr(sql`("name" || ' ' || coalesce("brand", ''))`)
+    ),
+    searchSquashed: text('search_squashed').generatedAlwaysAs(
+      squashExpr(sql`("name" || ' ' || coalesce("brand", ''))`)
+    ),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
@@ -203,6 +226,8 @@ export const foods = pgTable(
       .on(t.lastUsedAt.desc())
       .where(sql`${t.archivedAt} is null`),
     index('food_name_lower_idx').on(sql`lower(${t.name})`),
+    index('food_search_folded_idx').on(t.searchFolded),
+    index('food_search_squashed_idx').on(t.searchSquashed),
   ]
 );
 

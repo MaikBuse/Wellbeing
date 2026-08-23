@@ -1,5 +1,4 @@
-import { and, desc, eq, ilike, isNull, or, sql } from 'drizzle-orm';
-import type { PgColumn } from 'drizzle-orm/pg-core';
+import { and, asc, desc, eq, isNull, sql } from 'drizzle-orm';
 import { db } from '../index';
 import {
   foodCatalog,
@@ -10,6 +9,8 @@ import {
   mealItems,
   meals,
 } from '../schema';
+import { isSearchable, searchTokens } from '@/lib/search/terms';
+import { searchScore, searchWhere } from './search-rank';
 
 export type FoodListItem = {
   id: string;
@@ -83,25 +84,49 @@ export async function recentFoods(limit = 12): Promise<FoodListItem[]> {
 
 /**
  * Local search first — the library is where almost every lookup should land.
- * ILIKE on a lowered-name index is plenty for a few hundred foods; pg_trgm
- * would have to be declared at CNPG bootstrap time (the DB owner is not a
- * superuser on purpose).
+ *
+ * It shares its ranking with `searchCatalog` below (see ./search-rank.ts).
+ * Before, it had none: a plain double-sided ILIKE ordered by `use_count`, with
+ * no squashing, so a food copied out of the catalog as "Hafer Flocken" could
+ * not be found in one's own library by typing "haferflocken" — the exact miss
+ * the catalog search was written to fix, one table over.
+ *
+ * Brand is covered because `search_folded` is generated over name and brand
+ * together.
  */
 export async function searchFoods(
   query: string,
   limit = 25
 ): Promise<FoodListItem[]> {
-  const term = `%${query.trim()}%`;
+  const whole = query.trim();
+  const tokens = searchTokens(whole);
+  if (!isSearchable(whole) || tokens.length === 0) return [];
+
+  const target = { folded: foods.searchFolded, squashed: foods.searchSquashed };
+  const scored = db.$with('scored').as(
+    db
+      .select({
+        ...listColumns,
+        score: searchScore(target, tokens, whole).as('score'),
+      })
+      .from(foods)
+      .where(and(isNull(foods.archivedAt), searchWhere(target, tokens)))
+  );
+
   return db
-    .select(listColumns)
-    .from(foods)
-    .where(
-      and(
-        isNull(foods.archivedAt),
-        or(ilike(foods.name, term), ilike(foods.brand, term))
-      )
-    )
-    .orderBy(desc(foods.useCount), foods.name)
+    .with(scored)
+    .select({
+      id: scored.id,
+      name: scored.name,
+      brand: scored.brand,
+      kcal100: scored.kcal100,
+      defaultPortionGrams: scored.defaultPortionGrams,
+      basisUnit: scored.basisUnit,
+      isBeverage: scored.isBeverage,
+      useCount: scored.useCount,
+    })
+    .from(scored)
+    .orderBy(asc(scored.score), desc(scored.useCount), asc(scored.name))
     .limit(limit);
 }
 
@@ -116,61 +141,75 @@ export type CatalogListItem = {
 /**
  * The BLS fallback, for when the library has nothing.
  *
- * Two things make this more than an ILIKE.
+ * Same ranking as the library search — see ./search-rank.ts, which carries the
+ * reasoning. What it has to cope with beyond a plain ILIKE:
  *
  * The BLS writes compounds apart — "Hafer Flocken", "Reis poliert", "Hafer
  * ganzes Korn" — while nobody types "Hafer Flocken". A plain `%haferflocken%`
  * therefore misses the oats entirely and returns six kinds of
- * Haferflockenauflauf, which is how this was found. So the name and the term
- * are both squashed (spaces, commas, hyphens and slashes removed) and matched
- * that way as well.
+ * Haferflockenauflauf, which is how this was found. Both sides are squashed
+ * (everything but a-z0-9 removed) and matched on that axis too.
  *
  * And ordering is not a detail: the BLS enumerates every preparation of every
- * food, so "apfel" matches a dozen rows of equal textual relevance. Everyday
- * staples first (seed/data/bls-everyday.ts), then the earliest position of the
- * match — a name that begins with the term beats one that buries it — then the
- * shortest name, which is reliably the plainest variant. "Apfel roh" before
- * "Apfelrotkohl gedünstet".
+ * food, so "apfel" matches over a hundred rows of comparable textual relevance.
+ * The everyday shortlist (seed/data/bls-everyday.ts) settles those ties, and
+ * the shortest name after it — reliably the plainest variant. "Apfel roh"
+ * before "Apfelrotkohl gedünstet". What changed is that `is_everyday` is now a
+ * tiebreaker rather than the first sort key: as the first key it put every
+ * everyday row containing the letters "ei" — `Weinessig`, `Weißwein trocken` —
+ * ahead of `Hühnerei roh`.
  *
- * A sequential scan over 7140 rows is nothing, which is just as well: the
- * squashed match cannot use the plain-name index, and pg_trgm would have to be
- * declared at CNPG bootstrap (see `searchFoods` above).
+ * A sequential scan over 7140 rows is nothing, which is just as well: neither
+ * axis can use a plain-name index. pg_trgm would make the scan an index lookup
+ * and add tolerance for typos, and it is not used here by choice rather than by
+ * necessity — contrary to what this comment said before, `pg_trgm` is a
+ * *trusted* extension on Postgres 17 and its `CREATE EXTENSION` needs no
+ * superuser. It is a separate change: `CREATE EXTENSION` would run in the
+ * migrate init container against CNPG, and the deterministic ranking below can
+ * be tested against known data first.
  */
-const squashed = (column: PgColumn) =>
-  sql`regexp_replace(lower(${column}), '[ ,/-]', '', 'g')`;
-
 export async function searchCatalog(
   query: string,
   limit = 15
 ): Promise<CatalogListItem[]> {
-  const term = query.trim();
-  if (term.length < 2) return [];
+  const whole = query.trim();
+  const tokens = searchTokens(whole);
+  if (!isSearchable(whole) || tokens.length === 0) return [];
 
-  const squashedTerm = term.toLowerCase().replace(/[ ,/-]/g, '');
-  const name = foodCatalog.nameDe;
-  // Position of the match in the squashed name; 0 (no match) sorts last.
-  const position = sql`nullif(strpos(${squashed(name)}, ${squashedTerm}), 0)`;
+  const target = {
+    folded: foodCatalog.searchFolded,
+    squashed: foodCatalog.searchSquashed,
+    alias: foodCatalog.searchAlias,
+  };
+  const scored = db.$with('scored').as(
+    db
+      .select({
+        id: foodCatalog.id,
+        blsCode: foodCatalog.blsCode,
+        nameDe: foodCatalog.nameDe,
+        kcal100: foodCatalog.kcal100,
+        isEveryday: foodCatalog.isEveryday,
+        score: searchScore(target, tokens, whole).as('score'),
+      })
+      .from(foodCatalog)
+      .where(searchWhere(target, tokens))
+  );
 
   return db
+    .with(scored)
     .select({
-      id: foodCatalog.id,
-      blsCode: foodCatalog.blsCode,
-      nameDe: foodCatalog.nameDe,
-      kcal100: foodCatalog.kcal100,
-      isEveryday: foodCatalog.isEveryday,
+      id: scored.id,
+      blsCode: scored.blsCode,
+      nameDe: scored.nameDe,
+      kcal100: scored.kcal100,
+      isEveryday: scored.isEveryday,
     })
-    .from(foodCatalog)
-    .where(
-      or(
-        ilike(name, `%${term}%`),
-        sql`${squashed(name)} like ${'%' + squashedTerm + '%'}`
-      )
-    )
+    .from(scored)
     .orderBy(
-      desc(foodCatalog.isEveryday),
-      sql`${position} nulls last`,
-      sql`length(${name})`,
-      name
+      asc(scored.score),
+      desc(scored.isEveryday),
+      sql`length(${scored.nameDe})`,
+      asc(scored.nameDe)
     )
     .limit(limit);
 }

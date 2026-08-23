@@ -17,6 +17,7 @@ import {
   type OffProductData,
 } from '@/lib/off';
 import { searchCatalog, searchFoods } from '@/db/queries/foods';
+import { isSearchable } from '@/lib/search/terms';
 import { copyCatalogEntryToLibrary } from '@/services/food/fromCatalog';
 import {
   addPortion,
@@ -133,7 +134,7 @@ async function assertTagsAllowed(
 
 export async function searchFoodsAction(query: string) {
   await requireUserForAction();
-  if (query.trim().length < 2) return [];
+  if (!isSearchable(query)) return [];
   return searchFoods(query);
 }
 

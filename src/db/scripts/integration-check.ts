@@ -32,7 +32,8 @@ import {
   userSettings,
   achievements,
 } from '@/db/schema';
-import { searchCatalog } from '@/db/queries/foods';
+import { searchCatalog, searchFoods } from '@/db/queries/foods';
+import { BLS_ALIASES } from '@/db/seed/data/bls-aliases';
 import { seedLookups } from '@/db/seed/run';
 import { copyCatalogEntryToLibrary } from '@/services/food/fromCatalog';
 import {
@@ -1083,6 +1084,143 @@ check(
   (await searchCatalog('a')).length === 0
 );
 
+// The wordwise ranking. Every case below is one the old ordering got wrong, and
+// none of it can be checked without the real 7140 rows: relevance is a claim
+// about how a term competes against the whole catalog.
+
+// The complaint this was written for. `is_everyday` used to be the first sort
+// key and the character position of the match the second, so all 230 everyday
+// rows containing the letters "ei" came first, and "w-e-i-ßwein" hits at
+// character 2 while "Hühner-e-i" hits at 7. There was no egg in the first
+// twelve results.
+const eggHits = await searchCatalog('ei', 5);
+const eggNames = eggHits.map((h) => h.nameDe);
+check(
+  '"ei" finds the egg first, not the wine',
+  eggNames[0] === 'Hühnerei roh',
+  eggNames.join(' | ')
+);
+check(
+  '"ei" does not answer with Weißwein at all',
+  !eggNames.includes('Weißwein trocken'),
+  eggNames.join(' | ')
+);
+
+// ß→ss on both sides. This used to return nothing whatsoever.
+const wineHits = await searchCatalog('weisswein', 5);
+check(
+  '"weisswein" finds Weißwein without the ß',
+  wineHits[0]?.nameDe.startsWith('Weißwein') === true,
+  wineHits.map((h) => h.nameDe).join(' | ')
+);
+
+// "/" separates synonyms, not words: scoring `Karotte/Möhre, roh` as one name
+// put its second word behind `Möhren-Nuss-Kuchen`'s first.
+const carrotHits = await searchCatalog('möhre', 5);
+check(
+  '"möhre" finds the carrot behind the synonym slash',
+  carrotHits[0]?.nameDe === 'Karotte/Möhre, roh',
+  carrotHits.map((h) => h.nameDe).join(' | ')
+);
+
+// A word that ENDS with the term is a German compound head: `Apfelsaft` is a
+// juice, and it has to beat the dishes that merely have "Saft" as a word.
+const juiceNames = (await searchCatalog('saft', 5)).map((h) => h.nameDe);
+check(
+  '"saft" finds a juice, not a dish containing juice',
+  juiceNames[0]?.endsWith('saft') === true,
+  juiceNames.join(' | ')
+);
+
+// "milch" must answer with drinking milk. Every one of these used to be behind
+// whatever everyday row happened to contain the letters.
+const milkNames = (await searchCatalog('milch', 3)).map((h) => h.nameDe);
+check(
+  '"milch" answers with milk',
+  milkNames.length === 3 && milkNames.every((n) => n.startsWith('Milch ')),
+  milkNames.join(' | ')
+);
+
+// Word order carries no meaning, because every token has to match on its own.
+// The single-substring search this replaced could only find them adjacent and
+// in order.
+const [written, reversed] = await Promise.all([
+  searchCatalog('apfel roh', 5),
+  searchCatalog('roh apfel', 5),
+]);
+check(
+  'the tokens of a two-word term are unordered',
+  written.length > 0 &&
+    written.map((h) => h.nameDe).join('|') ===
+      reversed.map((h) => h.nameDe).join('|'),
+  `${written.map((h) => h.nameDe).join(' | ')} vs ${reversed.map((h) => h.nameDe).join(' | ')}`
+);
+check(
+  'both tokens have to match, so a second word narrows',
+  (await searchCatalog('milch laktosefrei', 5)).every((h) =>
+    h.nameDe.includes('laktosefrei')
+  )
+);
+
+// The space someone leaves out: "hafer flocken" and "haferflocken" both reach
+// the oats across the word boundary the BLS wrote in.
+check(
+  'a spelled-out compound still finds the squashed name',
+  (await searchCatalog('hafer flocken', 3))[0]?.nameDe === 'Hafer Flocken'
+);
+
+// The curated aliases, and that they are actually on the rows.
+check(
+  'every curated alias code carries its words after the seed',
+  (
+    await db.execute<{ n: number }>(
+      sql`select count(*)::int as n from food_catalog where search_alias is not null`
+    )
+  )[0]!.n === new Set(BLS_ALIASES.map((a) => a.code)).size,
+  'search_alias rows'
+);
+
+// A typed LIKE metacharacter is data, not a wildcard. Before, `%` matched the
+// whole table — and it is not exotic input here: the dairy names are full of
+// "mind. 50 % Fett i. Tr.".
+const percentHits = await searchCatalog('50 %', 5);
+check(
+  'a typed percent sign searches for a percent sign',
+  percentHits.every((h) => h.nameDe.includes('%')),
+  percentHits.map((h) => h.nameDe).join(' | ')
+);
+check(
+  'a lone metacharacter matches nothing rather than everything',
+  (await searchCatalog('%%', 5)).length === 0
+);
+
+// What justifies the generated columns. Folding and word-splitting the catalog
+// at query time cost ~70 ms before they existed, and the picker runs this on
+// every keystroke behind a 250 ms debounce. The threshold is deliberately loose
+// — the median is around 50 ms for this term and 12 ms for a normal one, and
+// the failure this catches is a lost generated column or index, which puts it
+// back over 180 ms, not a 20 % drift.
+const median = async (term: string) => {
+  await searchCatalog(term, 15); // warm the pool and the plan
+  const runs: number[] = [];
+  for (let i = 0; i < 5; i += 1) {
+    const started = Date.now();
+    await searchCatalog(term, 15);
+    runs.push(Date.now() - started);
+  }
+  return runs.sort((a, b) => a - b)[2]!;
+};
+
+const worstMs = await median('ei');
+check(
+  `the worst-case term stays under 150 ms (${worstMs} ms)`,
+  worstMs < 150,
+  '"ei" matches 2474 of the 7140 rows and every one of them gets scored'
+);
+
+const typicalMs = await median('apfel');
+check(`an ordinary term stays under 40 ms (${typicalMs} ms)`, typicalMs < 40);
+
 // Copy-on-use, twice, and from two different accounts: the library is shared
 // and unique on the name, so the second pick must find the first food rather
 // than fail or fork it.
@@ -1138,6 +1276,25 @@ if (firstPick.ok) {
     'oats get no lactose tag from a zero measurement',
     !keys.includes('lactose'),
     keys.join(',')
+  );
+
+  // The library search, which had no test at all and no squashing either: this
+  // food is named "Hafer Flocken" because the catalog names it that, and typing
+  // "haferflocken" used to find it in the catalog and not in one's own library.
+  const libraryHits = await searchFoods('haferflocken', 5);
+  check(
+    '"haferflocken" finds the library food named "Hafer Flocken"',
+    libraryHits.some((f) => f.id === firstPick.foodId),
+    libraryHits.map((f) => f.name).join(' | ')
+  );
+  check(
+    'the library search ranks the exact name first',
+    libraryHits[0]?.name === 'Hafer Flocken',
+    libraryHits.map((f) => f.name).join(' | ')
+  );
+  check(
+    'a typed metacharacter is not a wildcard in the library either',
+    (await searchFoods('%', 5)).length === 0
   );
 
   await db.delete(foodTags).where(eq(foodTags.foodId, firstPick.foodId));
