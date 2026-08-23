@@ -79,8 +79,8 @@ export const BLS_NUTRIENTS = {
   arachidonic: { prefix: 'F20:4CN6', expectedIndex: 348 },
 
   /*
-   * Micronutrients, for the nutrient-goal feature. Indices unverified until the
-   * first run against BLS 4.0 prints them.
+   * Micronutrients, for the nutrient-goal feature. Indices verified against the
+   * BLS 4.0 release of December 2025.
    *
    * EQUIVALENTS, NOT SINGLE FORMS, wherever D-A-CH states an equivalent:
    * `NIAEQ` not `NIA`, `VITA` (retinol equivalent) not `RETOL`. Picking the
@@ -88,30 +88,30 @@ export const BLS_NUTRIENTS = {
    * median plausibility check below would not reliably catch — it is the one
    * mistake here that has to be verified by eye against the nutrient list.
    */
-  vitA: { prefix: 'VITA ', expectedIndex: null },
-  vitD: { prefix: 'VITD ', expectedIndex: null },
-  vitE: { prefix: 'VITE ', expectedIndex: null },
-  vitK: { prefix: 'VITK ', expectedIndex: null },
-  vitC: { prefix: 'VITC ', expectedIndex: null },
-  vitB1: { prefix: 'THIA', expectedIndex: null },
-  vitB2: { prefix: 'RIBF', expectedIndex: null },
-  niacinEq: { prefix: 'NIAEQ', expectedIndex: null },
-  vitB6: { prefix: 'VITB6', expectedIndex: null },
-  folate: { prefix: 'FOL ', expectedIndex: null },
-  vitB12: { prefix: 'VITB12', expectedIndex: null },
-  calcium: { prefix: 'CA ', expectedIndex: null },
-  magnesium: { prefix: 'MG ', expectedIndex: null },
-  iron: { prefix: 'FE ', expectedIndex: null },
-  zinc: { prefix: 'ZN ', expectedIndex: null },
-  iodine: { prefix: 'ID ', expectedIndex: null },
-  potassium: { prefix: 'K ', expectedIndex: null },
-  phosphorus: { prefix: 'P ', expectedIndex: null },
-  ala: { prefix: 'F18:3CN3', expectedIndex: null },
-  omega6: { prefix: 'FAPUN6', expectedIndex: null },
-  linoleic: { prefix: 'F18:2CN6', expectedIndex: null },
-  mufa: { prefix: 'FAMS', expectedIndex: null },
-  pufa: { prefix: 'FAPU ', expectedIndex: null },
-  fiberSoluble: { prefix: 'FIBSOL', expectedIndex: null },
+  vitA: { prefix: 'VITA ', expectedIndex: 33 },
+  vitD: { prefix: 'VITD ', expectedIndex: 48 },
+  vitE: { prefix: 'VITE ', expectedIndex: 57 },
+  vitK: { prefix: 'VITK ', expectedIndex: 75 },
+  vitC: { prefix: 'VITC ', expectedIndex: 117 },
+  vitB1: { prefix: 'THIA', expectedIndex: 84 },
+  vitB2: { prefix: 'RIBF', expectedIndex: 87 },
+  niacinEq: { prefix: 'NIAEQ', expectedIndex: 90 },
+  vitB6: { prefix: 'VITB6', expectedIndex: 99 },
+  folate: { prefix: 'FOL ', expectedIndex: 105 },
+  vitB12: { prefix: 'VITB12', expectedIndex: 114 },
+  calcium: { prefix: 'CA ', expectedIndex: 132 },
+  magnesium: { prefix: 'MG ', expectedIndex: 135 },
+  iron: { prefix: 'FE ', expectedIndex: 144 },
+  zinc: { prefix: 'ZN ', expectedIndex: 147 },
+  iodine: { prefix: 'ID ', expectedIndex: 150 },
+  potassium: { prefix: 'K ', expectedIndex: 129 },
+  phosphorus: { prefix: 'P ', expectedIndex: 138 },
+  ala: { prefix: 'F18:3CN3', expectedIndex: 315 },
+  omega6: { prefix: 'FAPUN6', expectedIndex: 330 },
+  linoleic: { prefix: 'F18:2CN6', expectedIndex: 333 },
+  mufa: { prefix: 'FAMS', expectedIndex: 288 },
+  pufa: { prefix: 'FAPU ', expectedIndex: 309 },
+  fiberSoluble: { prefix: 'FIBSOL', expectedIndex: 237 },
 } as const satisfies Record<string, { prefix: string; expectedIndex: number | null }>;
 
 export type BlsKey = keyof typeof BLS_NUTRIENTS;
@@ -130,6 +130,9 @@ export const BLS_KEYS = Object.keys(BLS_NUTRIENTS) as BlsKey[];
  *  - two keys land on the same column, or one lands on another's `+1`/`+2`: the
  *    value/source/reference triple structure is broken.
  */
+/** The two companion columns of every nutrient triple, matched by name. */
+const PROVENANCE_SUFFIX = /\s(Datenherkunft|Referenz)$/;
+
 export function resolveColumns(
   header: readonly (string | undefined)[]
 ): Record<BlsKey, number> {
@@ -139,7 +142,14 @@ export function resolveColumns(
     const { prefix, expectedIndex } = BLS_NUTRIENTS[key];
     const hits: number[] = [];
     header.forEach((cell, index) => {
-      if ((cell ?? '').startsWith(prefix)) hits.push(index);
+      const text = cell ?? '';
+      if (!text.startsWith(prefix)) return;
+      // Every nutrient owns three columns and all three carry its code:
+      // `CODE Bezeichnung […]`, `CODE Datenherkunft`, `CODE Referenz`. Only the
+      // first holds a number, so the other two are excluded by name rather than
+      // by position — position is exactly what must not be assumed here.
+      if (PROVENANCE_SUFFIX.test(text)) return;
+      hits.push(index);
     });
 
     if (hits.length === 0) {
@@ -170,16 +180,24 @@ export function resolveColumns(
     if (clash) throw new Error(`${key} and ${clash} both resolve to column ${index}`);
     seen.set(index, key);
   }
-  // Every nutrient occupies three columns (value, Datenherkunft, Referenz), so
-  // a value column landing on another's +1 or +2 means the triple is broken and
-  // we would be reading a provenance code as a number.
+  /*
+   * The triple structure, checked rather than assumed: a nutrient's value
+   * column must be followed by its own `Datenherkunft` and `Referenz`. If a
+   * release ever drops one of the two, every column after it shifts by one and
+   * we would silently read a provenance code as a measurement — the failure
+   * that a header match on the value column alone cannot see.
+   */
   for (const key of BLS_KEYS) {
     if (key === 'code' || key === 'name') continue;
-    for (const offset of [1, 2]) {
-      const neighbour = seen.get(resolved[key] - offset);
-      if (neighbour && neighbour !== 'code' && neighbour !== 'name') {
+    const index = resolved[key];
+    for (const [offset, suffix] of [
+      [1, 'Datenherkunft'],
+      [2, 'Referenz'],
+    ] as const) {
+      const cell = header[index + offset] ?? '';
+      if (!cell.endsWith(suffix)) {
         throw new Error(
-          `${key} sits ${offset} column(s) after ${neighbour}; the value/source/reference triples are broken`
+          `${key} at column ${index}: expected "${suffix}" at ${index + offset} but found "${cell}" — the value/source/reference triples are broken`
         );
       }
     }

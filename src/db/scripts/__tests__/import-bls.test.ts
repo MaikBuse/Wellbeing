@@ -150,10 +150,22 @@ const TEST_COLUMNS = (() => {
 })();
 
 describe('resolveColumns', () => {
+  /**
+   * A header row with the real triple structure.
+   *
+   * Every nutrient owns three columns — value, `Datenherkunft`, `Referenz` —
+   * and all three start with its code. A fixture that emitted only the value
+   * column would be testing a file shape the BLS does not have.
+   */
   function header(entries: Record<number, string>): (string | undefined)[] {
     const row: (string | undefined)[] = [];
     for (const key of BLS_KEYS) {
-      row[TEST_COLUMNS[key]] = `${BLS_NUTRIENTS[key].prefix.trimEnd()} Bezeichnung [g/100g]`;
+      const code = BLS_NUTRIENTS[key].prefix.trimEnd();
+      const index = TEST_COLUMNS[key];
+      row[index] = `${code} Bezeichnung [g/100g]`;
+      if (key === 'code' || key === 'name') continue;
+      row[index + 1] = `${code} Datenherkunft`;
+      row[index + 2] = `${code} Referenz`;
     }
     for (const [index, value] of Object.entries(entries)) {
       row[Number(index)] = value;
@@ -171,6 +183,32 @@ describe('resolveColumns', () => {
     const row = header({});
     row[TEST_COLUMNS.calcium] = 'etwas ganz anderes';
     expect(() => resolveColumns(row)).toThrow(/calcium/);
+  });
+
+  /*
+   * The provenance columns carry the same code as the value column. Matching on
+   * the code alone would make every nutrient ambiguous, so they are excluded by
+   * NAME — never by position, because position is exactly what a shifted
+   * release changes.
+   */
+  it('ignores the Datenherkunft and Referenz columns of the same code', () => {
+    const resolved = resolveColumns(header({}));
+    expect(resolved.calcium).toBe(TEST_COLUMNS.calcium);
+    expect(resolved.kcal).toBe(BLS_NUTRIENTS.kcal.expectedIndex);
+  });
+
+  /*
+   * And the failure a value-column match cannot see: if a release drops one of
+   * the two companions, everything after it shifts by one and a provenance code
+   * would be read as a measurement.
+   */
+  it('throws when a nutrient triple is incomplete', () => {
+    const row = header({});
+    // A foreign column where the Datenherkunft belongs. Had it kept the CA
+    // code, the ambiguity check above would have caught it first — this is the
+    // case where only the triple check can.
+    row[TEST_COLUMNS.calcium + 1] = 'XYZ Fremdspalte [g/100g]';
+    expect(() => resolveColumns(row)).toThrow(/triples are broken/);
   });
 
   /*

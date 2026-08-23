@@ -122,7 +122,12 @@ der ganze Vertrag zwischen Katalog und Regeln.
 
 Aus derselben Quelle kommen die Mikronährstoffe für die Zielsetzung: Vitamine,
 Mineralstoffe, das Fettsäurespektrum und die löslichen Ballaststoffe, insgesamt
-25 weitere Spalten auf `food_catalog`. Sie bleiben in ihren BLS-eigenen
+25 weitere Spalten auf `food_catalog`. Gemessen sind sie für 95–100 % des
+Katalogs; die Ausreißer sind Jod (88 %) und die löslichen Ballaststoffe (47 %),
+und genau dort ist „zu wenig Messwerte" die normale Antwort statt der Ausnahme.
+`db:check` hält die Anteile als Untergrenzen fest — eine Neu-Einspielung, die
+still eine Spalte verliert, schriebe sonst weiterhin 7140 Zeilen und fiele
+nirgends auf. Sie bleiben in ihren BLS-eigenen
 Einheiten — `select vit_d_100 from food_catalog` soll eine Zahl liefern, die
 sich gegen eine Packungsangabe prüfen lässt. **Selen ist nicht dabei**: der BLS
 führt genau sechzehn Elemente und Selen gehört nicht dazu, also gibt es dafür

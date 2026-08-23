@@ -2124,6 +2124,47 @@ console.log('\nnährstoff-ziele');
     String(micro.calcium)
   );
 
+  /*
+   * Measured share per column, as lower bounds from the December 2025 import.
+   *
+   * This is the check that catches a re-import which silently lost a column:
+   * the seed would still write 7140 rows and every other check would pass,
+   * while one nutrient quietly became unmeasurable everywhere. The bounds sit
+   * a few points under the observed values so a release with slightly thinner
+   * data does not fail the build — they are a floor, not a fingerprint.
+   *
+   * Soluble fibre is the outlier at 46.5 % and belongs in the list precisely
+   * because of that: it is the column where "zu wenig Messwerte" is the normal
+   * answer rather than the exception.
+   */
+  const COVERAGE_FLOOR: [string, number][] = [
+    ['calcium_100', 95],
+    ['vit_d_100', 90],
+    ['vit_a_100', 95],
+    ['niacin_eq_100', 95],
+    ['vit_b6_100', 95],
+    ['folate_100', 95],
+    ['vit_b12_100', 93],
+    ['vit_c_100', 90],
+    ['iron_100', 95],
+    ['zinc_100', 95],
+    ['potassium_100', 95],
+    ['iodine_100', 80],
+    ['sodium_100', 95],
+    ['omega6_100', 90],
+    ['fiber_soluble_100', 35],
+  ];
+  for (const [column, floor] of COVERAGE_FLOOR) {
+    const [row] = await db.execute<{ pct: number }>(
+      sql`select round(100.0 * count(${sql.raw(column)}) / count(*), 1)::float as pct from food_catalog`
+    );
+    check(
+      `${column} is measured for at least ${floor} % of the catalogue`,
+      row.pct >= floor,
+      `${row.pct} %`
+    );
+  }
+
   const [rounded] = await db
     .select({ vitD: foodCatalog.vitD100 })
     .from(foodCatalog)

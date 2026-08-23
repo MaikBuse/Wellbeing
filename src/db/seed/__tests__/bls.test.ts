@@ -4,13 +4,6 @@ import { BLS_CSV } from '../data/bls-4.0';
 import { BLS_ALIASES } from '../data/bls-aliases';
 import { BLS_EVERYDAY_CODES } from '../data/bls-everyday';
 
-/**
- * The committed seed file is still the pre-micronutrient one until the BLS
- * XLSX is re-imported: the columns exist on the table and in the CSV header,
- * but every micronutrient is empty. These tests pin the CONTRACT — an absent
- * column reads as null, never as zero — so that re-importing turns them into
- * real assertions without any of them needing to be rewritten.
- */
 describe('parseCsv', () => {
   it('keeps a quoted comma inside the field', () => {
     // Half the BLS names carry a comma: "Hafer ganzes Korn, roh".
@@ -108,27 +101,66 @@ describe('die Mikronährstoff-Spalten', () => {
   const rows = rowsFromCsv(BLS_CSV);
 
   /*
-   * Whatever the state of the seed file, an unfilled micronutrient must arrive
-   * as null. A zero here would mean "measured and none present", and every day
-   * total in the app would then be understated with no coverage figure to show
-   * for it.
+   * Spot values from the December 2025 release, chosen because they are
+   * checkable against any nutrition table: whole milk is 117 mg calcium and
+   * 153.5 mg potassium per 100 g. If a column ever shifts, these move with it.
    */
-  it('read an absent micronutrient as null, never as 0', () => {
+  it('carries the values a real milk row has', () => {
     const milk = rows.find((r) => r.blsCode === 'M111300')!;
-    for (const value of [
-      milk.calcium100,
-      milk.vitD100,
-      milk.iodine100,
-      milk.potassium100,
-    ]) {
-      expect(value === null || typeof value === 'number').toBe(true);
-      if (value !== null) expect(Number.isFinite(value)).toBe(true);
+    expect(milk.calcium100).toBe(117);
+    expect(milk.potassium100).toBe(153.5);
+    expect(milk.phosphorus100).toBe(93);
+    expect(milk.iodine100).toBe(14);
+    expect(milk.vitB12100).toBe(0.37);
+  });
+
+  /*
+   * Sodium stays as sodium AND becomes salt. The salt column is a derived
+   * convenience for a package label; the element column is the measurement, and
+   * the two have to agree — 34.9 mg * 2.5 / 1000.
+   */
+  it('keeps sodium in milligrams alongside the derived salt figure', () => {
+    const milk = rows.find((r) => r.blsCode === 'M111300')!;
+    expect(milk.sodium100).toBe(34.9);
+    expect(milk.salt100).toBeCloseTo(0.087, 3);
+  });
+
+  /*
+   * The equivalents, not the single forms. D-A-CH states retinol equivalents
+   * and niacin equivalents, and reading RETOL or NIA instead gives plausible
+   * but systematically low numbers that no plausibility band would catch.
+   */
+  it('reads the equivalent columns where D-A-CH uses equivalents', () => {
+    const milk = rows.find((r) => r.blsCode === 'M111300')!;
+    // VITA (RE) is 25 µg for whole milk; RETOL alone would be lower.
+    expect(milk.vitA100).toBe(25);
+    // NIAEQ counts the tryptophan contribution, NIA alone would be near zero.
+    expect(milk.niacinEq100).toBe(1.273);
+  });
+
+  /*
+   * Still the contract that matters most: an unmeasured micronutrient is null.
+   * Soluble fibre is measured for well under half the catalogue, so it is the
+   * column where this is not hypothetical.
+   */
+  it('reads an unmeasured micronutrient as null, never as 0', () => {
+    const measured = rows.filter((r) => r.fiberSoluble100 !== null).length;
+    expect(measured).toBeGreaterThan(0);
+    expect(measured).toBeLessThan(rows.length);
+    for (const row of rows) {
+      const value = row.fiberSoluble100;
+      expect(value === null || (value !== undefined && value >= 0)).toBe(true);
     }
   });
 
-  it('accept a filled micronutrient column when the seed carries one', () => {
-    // Synthetic rather than from the committed file, so the mapping is checked
-    // before the re-import rather than after it.
+  it('distinguishes a measured zero from an unmeasured value', () => {
+    // Whole milk has a MEASURED zero for vitamin D — German milk is not
+    // fortified — which is a different statement from "nobody looked".
+    const milk = rows.find((r) => r.blsCode === 'M111300')!;
+    expect(milk.vitD100).toBe(0);
+  });
+
+  it('maps every column of a synthetic row', () => {
     const csv =
       'bls_code,name_de,group_key,calcium_100,vit_d_100,sodium_100\n' +
       'X000001,Testeintrag,X,120,0.045,\n';
