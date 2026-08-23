@@ -1,7 +1,8 @@
 import Image from 'next/image';
 import { Cloud, CloudDrizzle, CloudSun, Cloudy } from 'lucide-react';
 import type { MascotMood } from '@/services/nutrition/mascot';
-import { HAS_ARTWORK, POSTER_SRC } from './rive-asset';
+import { POSTER_SRC } from './rive-asset';
+import { HAS_POSTERS } from './artwork';
 
 /**
  * The still frame. Server-rendered, always present, never the whole message.
@@ -15,6 +16,10 @@ import { HAS_ARTWORK, POSTER_SRC } from './rive-asset';
  * `unoptimized`, for the reason spelled out in `brand/logo.tsx`: the runner
  * stage of the Dockerfile never runs `npm ci`, so sharp is not guaranteed to
  * exist.
+ *
+ * Falls back to a glyph while the stills are not shipped, so this never renders
+ * a broken image — `artwork.ts` decides by looking rather than by a constant
+ * somebody has to remember to flip.
  */
 
 const GLYPH = {
@@ -44,7 +49,7 @@ export function MascotPoster({
   // Fixed box either way, so swapping the glyph for the artwork shifts nothing.
   const box = { width: size, height: size };
 
-  if (HAS_ARTWORK) {
+  if (HAS_POSTERS) {
     return (
       <Image
         unoptimized

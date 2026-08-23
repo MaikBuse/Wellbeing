@@ -1,4 +1,5 @@
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync, statSync } from 'node:fs';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import type { NutrientKey } from '@/lib/nutrients';
 import { nutritionDay } from '../score';
@@ -362,5 +363,45 @@ describe('das Stimmungs-Mapping', () => {
     ]) {
       expect(NEGATIVE_MOODS).not.toContain(state.mood);
     }
+  });
+});
+
+/**
+ * The Rive runtime must stay behind a dynamic import.
+ *
+ * `@rive-app/canvas-single` bundles its WASM into the JavaScript, which is what
+ * makes it work offline and also what makes it the largest dependency in the
+ * project. A single top-level `import` anywhere would pull it into the shared
+ * chunk of every route, and nothing about the running app would look wrong —
+ * the day screen would just get quietly heavier for everyone, including the
+ * people who turned the mascot off.
+ */
+describe('die Rive-Runtime', () => {
+  function sourcesUnder(path: string): string[] {
+    if (!statSync(path).isDirectory()) {
+      return /\.tsx?$/.test(path) && !/\.test\.tsx?$/.test(path) ? [path] : [];
+    }
+    return readdirSync(path).flatMap((entry) => sourcesUnder(join(path, entry)));
+  }
+
+  it('is only ever reached through an await import', () => {
+    const offenders: string[] = [];
+    let mentions = 0;
+
+    for (const file of sourcesUnder('src')) {
+      const source = readFileSync(file, 'utf8')
+        .replace(/\/\*[\s\S]*?\*\//g, ' ')
+        .replace(/\/\/[^\n]*/g, ' ');
+
+      for (const line of source.split('\n')) {
+        if (!line.includes('@rive-app')) continue;
+        mentions += 1;
+        if (!line.includes('await import(')) offenders.push(`${file}: ${line.trim()}`);
+      }
+    }
+
+    expect(offenders).toEqual([]);
+    // Proves the scan found the import rather than finding nothing at all.
+    expect(mentions).toBeGreaterThan(0);
   });
 });

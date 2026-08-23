@@ -3,6 +3,8 @@ import type { MascotBond, MascotState } from '@/services/nutrition/mascot';
 import type { NextStep } from '@/services/nutrition/next-step';
 import { mascotCopy, type MascotScope } from '@/lib/mascot-copy';
 import { MascotPoster } from './mascot-poster';
+import { MascotCanvas } from './mascot-canvas';
+import { HAS_RIVE } from './artwork';
 
 /**
  * The mascot, wherever it appears.
@@ -15,7 +17,9 @@ import { MascotPoster } from './mascot-poster';
  *
  * Two variants and the difference is not decorative:
  *
- *  - `stage` is the one that may animate. One per route, at most.
+ *  - `stage` is the one that may animate. One per route, at most, and even then
+ *    only if the .riv is actually shipped — the canvas sits ON TOP of the
+ *    poster, so a file that fails to load leaves the still frame in place.
  *  - `whisper` is a line of text with a small still frame. No client JS at all,
  *    which is why the two appearances on the meal section and the daily check
  *    cost the day screen nothing.
@@ -51,9 +55,19 @@ export function MascotView({
     );
   }
 
+  const size = 72;
+
   return (
     <div className={`flex items-start gap-3 ${className}`}>
-      <MascotPoster mood={state.mood} size={72} />
+      {/* Fixed box, poster underneath, canvas over it. Nothing shifts when the
+       * animation appears, and nothing is missing if it never does. */}
+      <span
+        className="relative shrink-0"
+        style={{ width: size, height: size }}
+      >
+        <MascotPoster mood={state.mood} size={size} />
+        {HAS_RIVE ? <MascotCanvas mood={state.mood} size={size} /> : null}
+      </span>
       <div className="min-w-0 flex-1">
         {/* The mood as a word. Never omitted — see MascotPoster. */}
         <p className="text-eyebrow uppercase text-muted">{copy.moodLabel}</p>

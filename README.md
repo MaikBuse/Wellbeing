@@ -154,16 +154,39 @@ App unter „Einstellungen“.
 
 **Der Begleiter braucht kein Asset, um zu funktionieren.** Die Figur besteht aus
 zwei Schichten: Standbild plus Satz kommen aus dem Server-Markup, die Animation
-ist eine optionale Client-Insel darüber. Solange `HAS_ARTWORK` in
-`src/components/mascot/rive-asset.ts` false ist, zeigt sie ein Glyph und lädt
-keine Runtime — jeder Auftritt rendert und liest sich trotzdem vollständig. Das
-ist der Grund, warum das Feature fertig war, bevor die Lizenzfrage es war.
+ist eine optionale Client-Insel darüber. Fehlt das Artwork, zeigt sie ein Glyph
+und lädt keine Runtime — jeder Auftritt rendert und liest sich trotzdem
+vollständig. Das ist der Grund, warum das Feature fertig war, bevor die
+Lizenzfrage es war.
 
-Sobald eine `.riv` in `public/mascot/` liegt: Titel, Urheber, Quelle und Lizenz
-gehören in `ASSET_ATTRIBUTION` derselben Datei. Die Settings-Karte
-„Illustration" rendert daraus und erscheint nur, wenn das Asset wirklich
-ausgeliefert wird — eine Namensnennung für eine Datei, die nicht im Repo liegt,
-wäre ein Zitat von nichts. Bei CC BY ist die Nennung Lizenzbedingung.
+**Ob Artwork da ist, wird nachgesehen, nicht konfiguriert.**
+`src/components/mascot/artwork.ts` prüft einmal beim Modul-Laden, ob die vier
+PNGs und die `.riv` unter `public/mascot/` liegen. Ein handgesetztes Flag könnte
+in beide Richtungen lügen: auf true ohne Dateien gibt es vier 404-Bilder auf dem
+Tagesschirm, auf false mit Dateien erscheint die Zeichnung stillschweigend nie.
+Beides sieht man im Diff nicht. Der Preis ist, dass neue Dateien einen Neustart
+brauchen, keinen Rebuild — der richtige Tausch dafür, nie ein kaputtes Bild
+auszuliefern. Das Canvas liegt außerdem *über* dem Standbild, also bleibt bei
+einer nicht ladenden `.riv` das Standbild stehen.
+
+`ARTBOARD`, `STATE_MACHINE` und `MOOD_INPUT` in `rive-asset.ts` sind
+Platzhalter, bis jemand die Datei in einem Viewer öffnet. Ein falscher Name ist
+in der Rive-API ein stiller No-op, deshalb probiert `applyMood` und schluckt:
+die Verschlechterung ist „Default-Animation über dem Standbild", kein Fehler im
+Render.
+
+**Die Runtime bleibt hinter `await import(`.** `@rive-app/canvas-single` bündelt
+seine WASM ins JavaScript — 2,5 MB in einem eigenen Chunk, der in keinem
+Initial-Bundle hängt (`build-manifest.json` führt ihn auf keiner Seite). Ein
+einziger Top-Level-Import würde ihn in den gemeinsamen Chunk jeder Route ziehen,
+und nichts an der laufenden App sähe falsch aus. Ein Test in
+`services/nutrition/__tests__/mascot.test.ts` scannt `src/**` daraufhin.
+
+Titel, Urheber, Quelle und Lizenz des Assets gehören in `ASSET_ATTRIBUTION`. Die
+Settings-Karte „Illustration" rendert daraus und erscheint nur, wenn das Asset
+wirklich ausgeliefert wird — eine Namensnennung für eine Datei, die nicht im
+Repo liegt, wäre ein Zitat von nichts. Bei CC BY ist die Nennung
+Lizenzbedingung.
 
 **Dosisänderungen sind Historie, kein Edit.** Das alte Schema wird mit
 `valid_to` geschlossen und ein neues angelegt. Die vorherige Dosis ist eine

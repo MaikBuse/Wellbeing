@@ -8,10 +8,8 @@ import { Button } from '@/components/ui/button';
 import { Card, CardHeader, CardMeta, CardTitle } from '@/components/ui/card';
 import { PageHeader } from '@/components/ui/page-header';
 import { InstallPrompt } from '@/components/pwa/install-prompt';
-import {
-  ASSET_ATTRIBUTION,
-  HAS_ARTWORK,
-} from '@/components/mascot/rive-asset';
+import { ASSET_ATTRIBUTION } from '@/components/mascot/rive-asset';
+import { HAS_ARTWORK } from '@/components/mascot/artwork';
 import { MascotSwitch } from '@/components/settings/mascot-switch';
 import { TrackWeightSwitch } from '@/components/settings/track-weight-switch';
 import { TraceExposureSwitch } from '@/components/settings/trace-exposure-switch';

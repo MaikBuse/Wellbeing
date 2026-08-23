@@ -7,14 +7,17 @@ import type { MascotMood } from '@/services/nutrition/mascot';
  * this app's own vocabulary. Swapping the drawing, or swapping Rive for
  * something else entirely, is meant to cost this file and nothing else.
  *
- * `HAS_ARTWORK` is false until `public/mascot/` is filled. While it is false the
- * poster falls back to a glyph and the canvas never mounts, so every appearance
- * renders and reads correctly with no asset in the repository at all. That is
- * deliberate: the feature had to be finishable before the licence question was.
+ * Whether the files are actually present is NOT decided here — see
+ * `artwork.ts`, which looks. While they are missing the poster falls back to a
+ * glyph and the canvas never mounts, so every appearance renders and reads
+ * correctly with no asset in the repository at all. That is deliberate: the
+ * feature had to be finishable before the licence question was.
+ *
+ * This module stays free of `node:fs` and of the Rive package, because the
+ * client island imports it. `applyMood` therefore types its argument
+ * structurally, and `mascot.test.ts` checks that `@rive-app` only ever appears
+ * behind an `await import(`.
  */
-
-/** Flip to true once the .riv and the four posters are in public/mascot/. */
-export const HAS_ARTWORK = false;
 
 /**
  * Versioned filename so replacing the artwork does not force a service-worker
@@ -76,3 +79,34 @@ export const ASSET_ATTRIBUTION = {
   licenceUrl: 'https://creativecommons.org/licenses/by/4.0/',
   changesDe: 'Ausdrücke den vier Stimmungen zugeordnet, Standbilder exportiert.',
 } as const;
+
+/**
+ * The shape of a Rive instance that this module needs, described rather than
+ * imported — the package must not appear outside a dynamic import.
+ */
+export type MoodTarget = {
+  stateMachineInputs(name: string): { name: string; value: number | boolean }[];
+};
+
+/**
+ * Set the mood on a live instance.
+ *
+ * Probes and swallows on purpose. The artboard, state machine and input names
+ * come from whoever built the .riv, and the three constants above are
+ * placeholders until someone opens it in a viewer. A wrong name is a silent
+ * no-op in the Rive API, so the failure has to degrade to "the default
+ * animation keeps playing over the poster" rather than to a thrown error in a
+ * render. Nothing is logged: this runs on a screen full of health data and a
+ * console line about it would be the wrong habit to start.
+ */
+export function applyMood(rive: MoodTarget, mood: MascotMood): void {
+  try {
+    const input = rive
+      .stateMachineInputs(STATE_MACHINE)
+      .find((candidate) => candidate.name === MOOD_INPUT);
+    if (input) input.value = MOOD_INPUT_VALUE[mood];
+  } catch {
+    // Placeholder names, or a file without that state machine. The poster
+    // underneath is the fallback and it is already correct.
+  }
+}
