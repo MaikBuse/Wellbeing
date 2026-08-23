@@ -80,16 +80,68 @@ export const MOOD_FACE: Record<MascotMood, string> = {
 };
 
 /**
- * The one-shot gesture that plays when a mood is entered.
+ * The gesture that plays when a mood is entered.
  *
  * This is what separates `curious` from `neutral`: both wear the same face, and
  * the wave is the difference between waiting and asking. `neutral` has none —
  * a flare day or a day with too little recorded should be still.
+ *
+ * NOT one-shot, which the name in the file suggests and the file does not do.
+ * Every trigger here settles into a HELD POSE: two and a half seconds after
+ * `anim_wave` the hand is still up, after `anim_cookie` the cookie is still in
+ * both paws. Whatever fires one of these owes the figure a `restPose` — see
+ * `GESTURE_HOLD_MS`.
  */
 export const MOOD_GESTURE: Partial<Record<MascotMood, string>> = {
   happy: 'anim_happy',
   concerned: 'anim_sad',
   curious: 'anim_wave',
+};
+
+/**
+ * Back to standing.
+ *
+ * `anim_reset`, `anim_idle` and `anim_breathLOOP` all clear a held pose; this is
+ * the breathing loop because it is the only one of the three that also gives the
+ * figure something to do afterwards. A mascot frozen mid-frame reads as a broken
+ * image, and this app keeps a PWA open for days.
+ */
+export const REST_TRIGGER = 'anim_breathLOOP';
+
+/** A slower variation on standing, so a long-open screen is not a photograph. */
+export const IDLE_TRIGGER = 'anim_idle';
+
+/** How long a pose is held before `restPose` takes it back. */
+export const GESTURE_HOLD_MS = 1800;
+
+/** How often the resting figure varies its stance. */
+export const IDLE_EVERY_MS = 45_000;
+
+/**
+ * What the figure does about something the person just did.
+ *
+ * Separate from the mood on purpose, and the difference is what each one is
+ * ABOUT. A mood is a reading of the day; a cue is an acknowledgement of an
+ * action, and it passes. Nothing here grades anything: `logged` fires when a
+ * meal is recorded, not when a good meal is recorded, which is the same promise
+ * the mood side keeps by never looking at a single food.
+ *
+ * `entrance` is the walk cycle, and it walks ON THE SPOT — the figure never
+ * leaves the middle of its box. It is fired while the dock slides up from behind
+ * the tab bar, and the two together are what reads as stepping out.
+ *
+ * NO CUE TOUCHES THE FACE. The file offers an `Eating` face and it would be the
+ * obvious partner for `anim_cookie`, but at the 112 px this is drawn at, its
+ * open mouth reads as a grimace rather than as a bite. The cookie in both paws
+ * carries the meaning, and the face keeps saying what the day says.
+ */
+export type MascotCue = 'entrance' | 'logged' | 'dose' | 'closed';
+
+export const CUE_GESTURE: Record<MascotCue, string> = {
+  entrance: 'anim_walk_front',
+  logged: 'anim_cookie',
+  dose: 'anim_happy',
+  closed: 'anim_wave',
 };
 
 /** The faces that read as unhappy. Exactly one mood may use one. */
@@ -156,6 +208,28 @@ export function applyMood(rive: MoodTarget, mood: MascotMood): void {
 }
 
 /**
+ * Fire a gesture without touching the face.
+ *
+ * Same probe-and-swallow contract as `applyMood`, and the same reason for it.
+ */
+export function applyCue(rive: MoodTarget, cue: MascotCue): void {
+  try {
+    rive.viewModelInstance?.trigger(CUE_GESTURE[cue])?.trigger();
+  } catch {
+    // The poster underneath is the fallback and it is already correct.
+  }
+}
+
+/** Let go of whatever pose is being held. */
+export function restPose(rive: MoodTarget, trigger: string = REST_TRIGGER): void {
+  try {
+    rive.viewModelInstance?.trigger(trigger)?.trigger();
+  } catch {
+    // See above.
+  }
+}
+
+/**
  * CC BY 4.0 requires title, creator, source and licence, plus a note on
  * changes. Exported from here so that replacing the asset carries the credit
  * with it and cannot be forgotten in the settings screen.
@@ -167,5 +241,5 @@ export const ASSET_ATTRIBUTION = {
   licence: 'CC BY 4.0',
   licenceUrl: 'https://creativecommons.org/licenses/by/4.0/',
   changesDe:
-    'Figur „Merv“ gewählt, drei der acht Gesichter den Stimmungen zugeordnet, Standbilder daraus exportiert.',
+    'Figur „Merv“ gewählt, drei der acht Gesichter den Stimmungen zugeordnet, sechs der elf Bewegungen verwendet, Standbilder daraus exportiert.',
 } as const;

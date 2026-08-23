@@ -1,5 +1,7 @@
 import { NUTRIENT_META } from '@/lib/nutrients';
 import { formatAmount, formatTarget } from '@/lib/nutrition-goals';
+import type { CompanionNote } from '@/services/companion/agenda';
+import type { CompletenessBlockKey } from '@/services/progress/types';
 import type {
   MascotBond,
   MascotMood,
@@ -187,4 +189,59 @@ export function mascotCopy(input: {
 /** Portion weights are whole grams here; nobody needs 59,5 g of oats. */
 function formatGrams(grams: number): string {
   return `${Math.round(grams)} g`;
+}
+
+/*
+ * The two topics that are not about food.
+ *
+ * They live here rather than in a second copy file because `wording.test.ts`
+ * scans this path, and because the tone has to match: the figure says the same
+ * kind of sentence about an open dose as it does about a nutrient, or it turns
+ * into two different characters depending on the subject.
+ *
+ * Nothing here scolds. An open dose is "noch offen", never the other word — a
+ * dose that was deliberately skipped is a recorded decision, and one that was
+ * simply not reached yet is not a failure at seven in the evening either.
+ */
+
+const RECORDING_HEADLINE: Record<CompletenessBlockKey, string> = {
+  food: 'Vom Essen ist heute noch nicht alles erfasst.',
+  check: 'Im Tagescheck fehlen noch Werte.',
+  complaints: 'Zum Befinden steht für heute noch nichts.',
+  meds: 'Bei den Medikamenten ist für heute noch etwas offen.',
+};
+
+export type NoteCopy = { headline: string; detail: string | null };
+
+/**
+ * A note in words. Returns null for the nutrient topic, whose sentence comes
+ * from `mascotCopy` — there is exactly one place that phrases a verdict about
+ * food, and it is above this line.
+ */
+export function noteCopy(note: CompanionNote): NoteCopy | null {
+  if (note.topic === 'medikation' && note.doses !== null) {
+    const { overdue, due } = note.doses;
+    const answered = due - note.doses.open;
+    return {
+      headline:
+        overdue === 1
+          ? 'Eine Dosis von heute ist noch offen.'
+          : `${overdue} Dosen von heute sind noch offen.`,
+      detail:
+        due > overdue
+          ? `${answered} von ${due} für heute sind beantwortet.`
+          : null,
+    };
+  }
+
+  if (note.topic === 'erfassen' && note.missing !== null) {
+    return {
+      headline: RECORDING_HEADLINE[note.missing.block],
+      // The phrase verbatim from `dayCompleteness`, so this and the chips in
+      // `streak-hero.tsx` cannot drift apart.
+      detail: `Offen: ${note.missing.phrase}.`,
+    };
+  }
+
+  return null;
 }

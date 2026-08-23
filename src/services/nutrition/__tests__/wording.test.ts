@@ -27,6 +27,9 @@ const ROOTS = [
   // other part of this feature and needs the guard most.
   'src/lib/mascot-copy.ts',
   'src/components/mascot',
+  // The companion speaks about medication and about the diary too, and those
+  // are the two places where a scolding word would slip in most easily.
+  'src/services/companion',
 ];
 
 const FORBIDDEN = [

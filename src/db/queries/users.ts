@@ -1,3 +1,4 @@
+import { cache } from 'react';
 import { eq } from 'drizzle-orm';
 import { db } from '../index';
 import { appUsers, userSettings } from '../schema';
@@ -45,7 +46,17 @@ export async function upsertUserFromZitadel(input: {
   return user;
 }
 
-export async function getUserSettings(userId: string): Promise<UserSettings> {
+/**
+ * Wrapped in `cache()` because the companion moved into the (app) layout: the
+ * layout and the page beneath it both ask, within one request, and this is one
+ * row keyed by one string. React de-duplicates on referential equality of the
+ * arguments, which a plain userId satisfies and an options object would not —
+ * see `dayNutrition` in `services/nutrition/loader.ts` for the same problem
+ * solved the same way.
+ */
+export const getUserSettings = cache(async function getUserSettings(
+  userId: string
+): Promise<UserSettings> {
   const [row] = await db
     .select()
     .from(userSettings)
@@ -70,4 +81,4 @@ export async function getUserSettings(userId: string): Promise<UserSettings> {
     countTraceExposure: row.countTraceExposure,
     showMascot: row.showMascot,
   };
-}
+});

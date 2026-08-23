@@ -1,3 +1,4 @@
+import { cache } from 'react';
 import { NUTRIENT_META, type NutrientKey } from '@/lib/nutrients';
 import {
   addDays,
@@ -96,6 +97,20 @@ export type LoadNutritionOptions = {
   days?: number;
   now?: Date;
 };
+
+/**
+ * Today, for whoever only needs today.
+ *
+ * A `cache()` wrapper with PRIMITIVE arguments, and that is the whole point:
+ * React compares arguments by identity, so `loadNutrition(id, { to })` misses
+ * the cache on every call because the object literal is new each time. The
+ * companion in the (app) layout and the day screen under it both want the same
+ * day out of the same request, and without this the busiest screen in the app
+ * would read ninety days twice.
+ */
+export const dayNutrition = cache((userId: string, to: LogDate) =>
+  loadNutrition(userId, { to })
+);
 
 export async function loadNutrition(
   userId: string,

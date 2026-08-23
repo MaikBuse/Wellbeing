@@ -159,6 +159,16 @@
   --radius-sheet: 1.75rem;
   --radius-pill: 9999px;
 
+  /*
+   * The height of the tab bar, derived from `bottom-nav.tsx`: 1px border-t +
+   * pt-1 (4px) + the 44px tap floor + safe-bottom.
+   *
+   * For fixed elements that have to MEET the bar — the mascot dock is the only
+   * one. The content spacer stays `pb-24`: it is a scroll cushion and wants a
+   * round number, not this one.
+   */
+  --nav-h: calc(49px + max(0.5rem, env(safe-area-inset-bottom)));
+
   /* Motion. Durations stay on Tailwind's numeric scale: 120 / 200 / 320 / 450. */
   --ease-out-soft: cubic-bezier(0.22, 1, 0.36, 1);
   --ease-out-back: cubic-bezier(0.34, 1.56, 0.64, 1);
@@ -465,12 +475,25 @@
   z-index: 100;
 }
 ::view-transition-old(site-header),
-::view-transition-old(site-nav) {
+::view-transition-old(site-nav),
+::view-transition-old(site-mascot) {
   display: none;
 }
 ::view-transition-new(site-header),
-::view-transition-new(site-nav) {
+::view-transition-new(site-nav),
+::view-transition-new(site-mascot) {
   animation: none;
+}
+
+/*
+ * The mascot is an anchor for the same reason the bar is — it stands ON the
+ * bar, and a figure that slid away with the page would tear the two apart. Its
+ * z-index sits below the bar's so the layering during the transition matches
+ * the layering outside it: the glass covers his legs either way.
+ */
+::view-transition-group(site-mascot) {
+  animation: none;
+  z-index: 99;
 }
 
 /* Forward: old content leaves to the left, new arrives from the right. */
@@ -550,5 +573,34 @@
 
   a[href]::after {
     content: '';
+  }
+}
+
+/* ---------------------------------------------------------------------------
+ * The companion's speech chip.
+ *
+ * It says the mood in words next to a drawing that only shows it, and then gets
+ * out of the way. The collapse lives inside `no-preference` ON PURPOSE: with
+ * reduced motion the chip simply STAYS, which is the safe direction to fail in
+ * — the rule from CLAUDE.md is that colour, and a face with it, never carries a
+ * value alone.
+ * ------------------------------------------------------------------------- */
+
+@media (prefers-reduced-motion: no-preference) {
+  @keyframes chip-collapse {
+    0%,
+    72% {
+      opacity: 1;
+      transform: none;
+    }
+    100% {
+      opacity: 0;
+      transform: translateX(0.5rem);
+      visibility: hidden;
+    }
+  }
+
+  .chip-collapse {
+    animation: chip-collapse 8s var(--ease-out-soft) forwards;
   }
 }

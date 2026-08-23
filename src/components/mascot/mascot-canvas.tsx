@@ -1,25 +1,31 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useReducedMotion } from '@/lib/use-media-query';
 import type { MascotMood } from '@/services/nutrition/mascot';
 import {
+  GESTURE_HOLD_MS,
+  IDLE_EVERY_MS,
+  IDLE_TRIGGER,
   RIVE_SRC,
   STATE_MACHINE,
+  applyCue,
   applyMood,
   initCharacter,
+  restPose,
+  type MascotCue,
   type MoodTarget,
 } from './rive-asset';
 
 /**
  * The one client island in this feature.
  *
- * Props are an enum and a number. The sentence, the nutrient name and the
- * suggestion all stay in the server markup of `MascotView` and never cross this
+ * Props are enums and numbers. The sentence, the nutrient name and the
+ * suggestion all stay in the server markup around it and never cross this
  * boundary, so the same line that stands over `animated-number.tsx` holds here:
  * this island holds no health data of its own and logs nothing.
  *
- * Three things it is careful about.
+ * Four things it is careful about.
  *
  * THE RUNTIME IS NEVER LOADED SPECULATIVELY. `@rive-app/canvas-single` carries
  * its WASM inline, so the chunk is large; it is reached only through the dynamic
@@ -28,15 +34,20 @@ import {
  * is stricter than the global CSS rule — that one only stops CSS animations, it
  * cannot stop a download.
  *
- * ONE INSTANCE PER PAGE. `MascotView` already renders at most one `stage`
- * variant per route, but the module-level claim is the net under that: a second
- * island mounting at the same time renders nothing and leaves the poster
- * standing, rather than starting a second render loop on a phone.
+ * ONE INSTANCE PER PAGE. The dock is the only caller now, but the module-level
+ * claim is the net under that: a second island mounting at the same time renders
+ * nothing and leaves the poster standing, rather than starting a second render
+ * loop on a phone.
  *
  * IT STOPS WHEN NOBODY IS LOOKING. This app is installed as a PWA and stays
  * open for days (see the comment in `use-media-query.ts`), so a loop that ran
- * while the tab was hidden or the figure scrolled away would just be a battery
+ * while the tab was hidden or the figure was tucked away would just be a battery
  * cost.
+ *
+ * EVERY POSE IS GIVEN BACK. The triggers in this file do not end by themselves —
+ * see the comment over `MOOD_GESTURE`. One timer owns that, and it is shared
+ * between the mood gesture and the cue so that a meal recorded during a wave
+ * cancels the wave's return rather than racing it.
  */
 
 /*
@@ -48,20 +59,43 @@ let claimed = false;
 
 export function MascotCanvas({
   mood,
+  cue,
+  cueToken,
   size,
 }: {
   mood: MascotMood;
+  /** The last thing the person did, or null. */
+  cue: MascotCue | null;
+  /**
+   * Changes whenever `cue` should play again, including when the cue itself is
+   * unchanged — two meals in a row are two acknowledgements, not one.
+   */
+  cueToken: number;
   size: number;
 }) {
   const reduced = useReducedMotion();
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const riveRef = useRef<{
-    cleanup(): void;
-    play(): void;
-    pause(): void;
-    resizeDrawingSurfaceToCanvas(): void;
-  } & MoodTarget | null>(null);
+  const riveRef = useRef<
+    | ({
+        cleanup(): void;
+        play(): void;
+        pause(): void;
+        resizeDrawingSurfaceToCanvas(): void;
+      } & MoodTarget)
+    | null
+  >(null);
+  const restTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [ready, setReady] = useState(false);
+
+  /** Hold a pose for a moment, then stand normally again. */
+  const holdThenRest = useCallback(() => {
+    if (restTimer.current !== null) clearTimeout(restTimer.current);
+    restTimer.current = setTimeout(() => {
+      restTimer.current = null;
+      const rive = riveRef.current;
+      if (rive !== null) restPose(rive);
+    }, GESTURE_HOLD_MS);
+  }, []);
 
   useEffect(() => {
     if (reduced) return;
@@ -72,6 +106,7 @@ export function MascotCanvas({
 
     let cancelled = false;
     let observer: IntersectionObserver | null = null;
+    let idle: ReturnType<typeof setInterval> | null = null;
 
     // Paused for either reason, resumed only when both are clear again.
     let visible = true;
@@ -105,6 +140,7 @@ export function MascotCanvas({
           rive.resizeDrawingSurfaceToCanvas();
           initCharacter(rive);
           applyMood(rive, mood);
+          holdThenRest();
           // Only now does the canvas cover the poster, so a failure to load
           // leaves the still frame visible instead of an empty box.
           setReady(true);
@@ -121,6 +157,17 @@ export function MascotCanvas({
       });
       observer.observe(canvas);
       document.addEventListener('visibilitychange', onVisibility);
+
+      /*
+       * A stance change now and then. Only while nothing is being held, so this
+       * can never cut a gesture short — and cheap enough at this interval that
+       * it costs nothing on a screen left open.
+       */
+      idle = setInterval(() => {
+        if (restTimer.current !== null) return;
+        if (document.visibilityState !== 'visible') return;
+        restPose(rive, IDLE_TRIGGER);
+      }, IDLE_EVERY_MS);
     })().catch(() => {
       // The poster stays. Nothing else to do and nothing to say.
     });
@@ -128,6 +175,9 @@ export function MascotCanvas({
     return () => {
       cancelled = true;
       observer?.disconnect();
+      if (idle !== null) clearInterval(idle);
+      if (restTimer.current !== null) clearTimeout(restTimer.current);
+      restTimer.current = null;
       document.removeEventListener('visibilitychange', onVisibility);
       riveRef.current?.cleanup();
       riveRef.current = null;
@@ -141,8 +191,20 @@ export function MascotCanvas({
 
   useEffect(() => {
     const rive = riveRef.current;
-    if (rive !== null && ready) applyMood(rive, mood);
-  }, [mood, ready]);
+    if (rive === null || !ready) return;
+    applyMood(rive, mood);
+    holdThenRest();
+  }, [mood, ready, holdThenRest]);
+
+  useEffect(() => {
+    const rive = riveRef.current;
+    if (rive === null || !ready || cue === null) return;
+    applyCue(rive, cue);
+    holdThenRest();
+    // `cue` is deliberately not the only dependency: the same cue twice in a row
+    // is two acknowledgements.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cueToken, ready]);
 
   if (reduced) return null;
 

@@ -15,10 +15,13 @@ import {
   mascotMoodForWeek,
 } from '../mascot';
 import {
+  CUE_GESTURE,
   MOOD_FACE,
   MOOD_GESTURE,
   NEGATIVE_FACES,
   NEGATIVE_MOODS,
+  REST_TRIGGER,
+  type MascotCue,
 } from '@/components/mascot/rive-asset';
 import { NUTRITION_TEST_TARGETS, ON_TARGET } from './helpers';
 import { dayWith, minTarget, total } from './fixtures';
@@ -420,5 +423,61 @@ describe('die Rive-Runtime', () => {
     expect(offenders).toEqual([]);
     // Proves the scan found the import rather than finding nothing at all.
     expect(mentions).toBeGreaterThan(0);
+  });
+});
+
+/**
+ * The reactions, checked against the same promise the moods are held to.
+ *
+ * A cue is an acknowledgement of something the person did — a meal recorded, a
+ * dose answered, the day closed. None of it is a verdict, so none of it may
+ * look like one. The face is left alone entirely: the file offers `Eating`, and
+ * at the size this is drawn its open mouth reads as a grimace, which would turn
+ * "recorded" into "disapproved of".
+ */
+describe('die Regungen', () => {
+  const CUES: MascotCue[] = ['entrance', 'logged', 'dose', 'closed'];
+
+  it('gives every cue a gesture', () => {
+    for (const cue of CUES) expect(CUE_GESTURE[cue], cue).toBeTruthy();
+  });
+
+  it('never changes the face', () => {
+    const source = readFileSync(
+      'src/components/mascot/rive-asset.ts',
+      'utf8'
+    ).replace(/\/\*[\s\S]*?\*\//g, ' ');
+    // The only assignment target for a face is MOOD_FACE.
+    expect(source).not.toMatch(/CUE_FACE/);
+  });
+
+  /*
+   * The four faces this app never wears. Merv can look angry, terrified and
+   * intensely sad; a symptom diary has no business doing any of the three at
+   * the person keeping it. `Sad` is the one exception and it belongs to
+   * `concerned` alone, which the test above pins down.
+   */
+  it('leaves the angry, the intense and the frightened faces unused', () => {
+    const worn = Object.values(MOOD_FACE);
+    for (const face of ['Angry', 'Intense Angry', 'Intense Sad', 'Scared']) {
+      expect(worn, face).not.toContain(face);
+    }
+  });
+
+  it('sends no cue to an unhappy gesture', () => {
+    const unhappy = ['anim_sad', 'anim_sadIntense', 'anim_angry', 'anim_scared'];
+    for (const cue of CUES) {
+      expect(unhappy, cue).not.toContain(CUE_GESTURE[cue]);
+    }
+  });
+
+  /*
+   * The finding that made this whole choreography necessary: the triggers in
+   * this file are not one-shot. Two and a half seconds after `anim_wave` the
+   * hand is still up. Something has to put it down, and this is the name of the
+   * thing that does.
+   */
+  it('has a way back to standing', () => {
+    expect(REST_TRIGGER).toBe('anim_breathLOOP');
   });
 });

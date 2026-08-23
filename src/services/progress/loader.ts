@@ -196,7 +196,14 @@ export async function loadProgress(
  * The dense calendar is not a convenience here, it is the measurement: a streak
  * is precisely the difference between "days in a row" and "rows in a row".
  */
-function buildCoverage(
+/**
+ * Raw per-day coverage for a range.
+ *
+ * Exported because the companion needs exactly one day of it and must not pay
+ * for `loadProgress`, which rebuilds ninety days of due doses to answer a
+ * question about today. Same inputs, same shape, one date in and one date out.
+ */
+export function buildCoverage(
   from: LogDate,
   to: LogDate,
   slotRows: readonly { logDate: LogDate; slot: MealSlotKey }[],

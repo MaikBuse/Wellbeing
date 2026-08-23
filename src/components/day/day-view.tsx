@@ -6,7 +6,6 @@ import {
   getDailyLogJoints,
   getDayMeals,
   getStandaloneSymptoms,
-  loggedDayCount,
 } from '@/db/queries/day';
 import { frequentFoodsForSlot, recentFoods } from '@/db/queries/foods';
 import { menstrualEventsForDay } from '@/db/queries/analysis';
@@ -20,14 +19,14 @@ import { loadProgress } from '@/services/progress/loader';
 import { NO_NUTRITION } from '@/services/progress/milestones';
 import {
   DAY_PRIORITY,
-  loadNutrition,
+  dayNutrition,
   nutritionMilestoneInput,
 } from '@/services/nutrition/loader';
 import {
   DENSE_FOOD_WINDOW_DAYS,
   nutrientDenseOwnFoods,
 } from '@/db/queries/nutrition';
-import { mascotBond, mascotMoodForDay } from '@/services/nutrition/mascot';
+import { mascotMoodForDay } from '@/services/nutrition/mascot';
 import { rankNextStep } from '@/services/nutrition/next-step';
 import { DayGoals } from '@/components/nutrition/day-goals';
 import { MascotView } from '@/components/mascot/mascot-view';
@@ -77,7 +76,7 @@ export async function DayView({ logDate }: { logDate: LogDate }) {
    */
   const nutritionPromise =
     offsetDays === 0
-      ? loadNutrition(user.id, { to: logDate })
+      ? dayNutrition(user.id, logDate)
       : Promise.resolve(null);
 
   const [
@@ -93,7 +92,6 @@ export async function DayView({ logDate }: { logDate: LogDate }) {
     cycleEvents,
     nutrition,
     progress,
-    loggedDays,
   ] = await Promise.all([
     getDayMeals(user.id, logDate),
     getDailyLog(user.id, logDate),
@@ -125,11 +123,6 @@ export async function DayView({ logDate }: { logDate: LogDate }) {
           )
         )
       : Promise.resolve(null),
-    // Lifetime distinct days, for the mascot's bond. One indexed count, and
-    // only for today — a dated day is not where a companion belongs.
-    offsetDays === 0 && settings.showMascot
-      ? loggedDayCount(user.id)
-      : Promise.resolve(0),
   ]);
 
   const selectedJoints = dailyLog ? await getDailyLogJoints(dailyLog.id) : [];
@@ -227,7 +220,7 @@ export async function DayView({ logDate }: { logDate: LogDate }) {
   /*
    * The suggestion, and only when there is a provable gap to close.
    *
-   * Sequential after `loadNutrition` because the nutrient it is about IS that
+   * Sequential after `dayNutrition` because the nutrient it is about IS that
    * read's result. It costs one aggregate on the days the mascot is curious and
    * nothing on the days it is happy, quiet or watching a limit.
    */
@@ -304,7 +297,6 @@ export async function DayView({ logDate }: { logDate: LogDate }) {
               step={mascotStep}
               scope="day"
               variant="stage"
-              bond={mascotBond(loggedDays)}
             />
           ) : null
         }

@@ -1,4 +1,6 @@
+import { Suspense } from 'react';
 import { requireUser } from '@/auth.helpers';
+import { MascotDock } from '@/components/mascot/mascot-dock';
 import { AppHeader } from '@/components/nav/app-header';
 import { BottomNav } from '@/components/nav/bottom-nav';
 import { RefreshOnResume } from '@/components/pwa/refresh-on-resume';
@@ -37,6 +39,16 @@ export default async function AppLayout({
         className="pointer-events-none fixed inset-x-0 bottom-0 z-20 h-14 bg-gradient-to-t from-bg to-transparent"
       />
       <BottomNav />
+      {/*
+       * The companion stands on the bar, so he belongs to the frame rather than
+       * to any one screen. Inside a Suspense boundary because he reads the
+       * day's nutrients: without it every route in the app — /settings
+       * included — would wait on that before painting. He arrives a moment
+       * late, which is what walking into a room looks like.
+       */}
+      <Suspense fallback={null}>
+        <MascotDock />
+      </Suspense>
       <RefreshOnResume />
     </div>
   );
