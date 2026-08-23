@@ -148,3 +148,32 @@ export const challengeVerdict = pgEnum('challenge_verdict', [
   'reactive',
   'inconclusive',
 ]);
+
+/*
+ * Nutrient goals.
+ *
+ * `biological_sex` picks a D-A-CH reference column and nothing else. It is
+ * labelled "Referenzwerte nach" in the UI, and NULL means "sex-dependent
+ * targets cannot be derived" — not "assume male", not "take the stricter
+ * value". Same contract as a nutrient that was never measured.
+ */
+export const biologicalSex = pgEnum('biological_sex', ['female', 'male']);
+
+/** PAL factors 1.2 / 1.4 / 1.6 / 1.8 / 1.9; the numbers live in the code. */
+export const activityLevel = pgEnum('activity_level', [
+  'sedentary',
+  'light',
+  'moderate',
+  'active',
+  'very_active',
+]);
+export const weightGoal = pgEnum('weight_goal', ['maintain', 'lose', 'gain']);
+export const menopauseStage = pgEnum('menopause_stage', ['pre', 'peri', 'post']);
+export const dietForm = pgEnum('diet_form', [
+  'omnivore',
+  'pescetarian',
+  'vegetarian',
+  'vegan',
+]);
+/** Where the body weight behind a weight-scaled target comes from. */
+export const weightSource = pgEnum('weight_source', ['daily_log', 'manual']);

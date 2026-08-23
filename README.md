@@ -120,6 +120,21 @@ Ein nicht gemessener Nährwert ist `null` und entscheidet **nichts**; ein
 gemessener Nullwert ist `0` und verhindert das Tag. Diese Unterscheidung ist
 der ganze Vertrag zwischen Katalog und Regeln.
 
+Aus derselben Quelle kommen die Mikronährstoffe für die Zielsetzung: Vitamine,
+Mineralstoffe, das Fettsäurespektrum und die löslichen Ballaststoffe, insgesamt
+25 weitere Spalten auf `food_catalog`. Sie bleiben in ihren BLS-eigenen
+Einheiten — `select vit_d_100 from food_catalog` soll eine Zahl liefern, die
+sich gegen eine Packungsangabe prüfen lässt. **Selen ist nicht dabei**: der BLS
+führt genau sechzehn Elemente und Selen gehört nicht dazu, also gibt es dafür
+auch kein Ziel.
+
+Die Spalten werden nicht mehr über feste Indizes gelesen, sondern über die
+Nährstoffcodes in der Kopfzeile (`resolveColumns`). Der Importer bricht ab, wenn
+ein Code fehlt, mehrdeutig ist oder an einer anderen Stelle steht als erwartet,
+und prüft anschließend die Spaltenmediane gegen Plausibilitätsbänder — ein
+Versatz um drei Spalten schiebt die `Datenherkunft` in den Wert-Slot, und das
+sieht ein Header-Vergleich nicht.
+
 Die Daten liegen als TS-Modul (`src/db/seed/data/bls-4.0.ts`) und nicht als
 CSV-Datei vor, weil `src/db/migrate.ts` per esbuild in den Init-Container
 gebündelt wird — eine zur Laufzeit über einen Pfad gelesene Datei gäbe es dort

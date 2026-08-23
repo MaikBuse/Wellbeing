@@ -19,11 +19,12 @@ import { BLS_EVERYDAY_CODES } from './data/bls-everyday';
 type Database = PostgresJsDatabase<Record<string, unknown>>;
 
 /**
- * Postgres caps a statement at 65535 bound parameters. At 23 columns that is
- * ~2800 rows, so 500 leaves plenty of head-room and keeps each statement small
- * enough that a failure is readable.
+ * Postgres caps a statement at 65535 bound parameters. At 48 columns that is
+ * ~1360 rows, so 400 leaves head-room and keeps each statement small enough
+ * that a failure is readable. It was 500 while the table had 23 columns; the
+ * number is worth re-checking whenever a column is added.
  */
-const BATCH_SIZE = 500;
+const BATCH_SIZE = 400;
 
 /** Minimal RFC-4180 reader. The BLS names contain commas and quotes. */
 export function parseCsv(text: string): string[][] {
@@ -71,6 +72,60 @@ function numberOrNull(value: string | undefined): number | null {
 
 export type CatalogSeedRow = typeof foodCatalog.$inferInsert;
 
+/**
+ * CSV column -> drizzle property, ONE list feeding both the row build and the
+ * upsert's `set`.
+ *
+ * They used to be two hand-maintained lists, and a nutrient missing from the
+ * `set` is completely silent: the first seed writes it, the second one does not
+ * update it, and nothing ever says so. With forty-five columns that stopped
+ * being a theoretical risk. `db:check` asserts idempotency on top.
+ */
+const CATALOG_COLUMNS = [
+  ['kcal_100', 'kcal100'],
+  ['protein_100', 'protein100'],
+  ['fat_100', 'fat100'],
+  ['sat_fat_100', 'satFat100'],
+  ['carbs_100', 'carbs100'],
+  ['sugar_100', 'sugar100'],
+  ['fiber_100', 'fiber100'],
+  ['salt_100', 'salt100'],
+  ['lactose_100', 'lactose100'],
+  ['fructose_100', 'fructose100'],
+  ['glucose_100', 'glucose100'],
+  ['sorbitol_100', 'sorbitol100'],
+  ['mannitol_100', 'mannitol100'],
+  ['alcohol_100', 'alcohol100'],
+  ['omega3_100', 'omega3100'],
+  ['epa_dha_100', 'epaDha100'],
+  ['arachidonic_100', 'arachidonic100'],
+  ['fiber_soluble_100', 'fiberSoluble100'],
+  ['mufa_100', 'mufa100'],
+  ['pufa_100', 'pufa100'],
+  ['omega6_100', 'omega6100'],
+  ['linoleic_100', 'linoleic100'],
+  ['ala_100', 'ala100'],
+  ['vit_a_100', 'vitA100'],
+  ['vit_d_100', 'vitD100'],
+  ['vit_e_100', 'vitE100'],
+  ['vit_k_100', 'vitK100'],
+  ['vit_c_100', 'vitC100'],
+  ['vit_b1_100', 'vitB1100'],
+  ['vit_b2_100', 'vitB2100'],
+  ['niacin_eq_100', 'niacinEq100'],
+  ['vit_b6_100', 'vitB6100'],
+  ['folate_100', 'folate100'],
+  ['vit_b12_100', 'vitB12100'],
+  ['calcium_100', 'calcium100'],
+  ['magnesium_100', 'magnesium100'],
+  ['iron_100', 'iron100'],
+  ['zinc_100', 'zinc100'],
+  ['iodine_100', 'iodine100'],
+  ['potassium_100', 'potassium100'],
+  ['phosphorus_100', 'phosphorus100'],
+  ['sodium_100', 'sodium100'],
+] as const satisfies readonly (readonly [string, keyof CatalogSeedRow])[];
+
 export function rowsFromCsv(text: string): CatalogSeedRow[] {
   const [header, ...body] = parseCsv(text);
   if (!header) throw new Error('BLS_CSV is empty');
@@ -80,39 +135,40 @@ export function rowsFromCsv(text: string): CatalogSeedRow[] {
 
   return body
     .filter((row) => row.length > 1 && (at(row, 'bls_code') ?? '') !== '')
-    .map((row) => ({
-      blsCode: at(row, 'bls_code')!,
-      nameDe: at(row, 'name_de')!,
-      groupKey: at(row, 'group_key')!,
-      isEveryday: everyday.has(at(row, 'bls_code')!),
-      searchAlias: aliases.get(at(row, 'bls_code')!) ?? null,
-      kcal100: numberOrNull(at(row, 'kcal_100')),
-      protein100: numberOrNull(at(row, 'protein_100')),
-      fat100: numberOrNull(at(row, 'fat_100')),
-      satFat100: numberOrNull(at(row, 'sat_fat_100')),
-      carbs100: numberOrNull(at(row, 'carbs_100')),
-      sugar100: numberOrNull(at(row, 'sugar_100')),
-      fiber100: numberOrNull(at(row, 'fiber_100')),
-      salt100: numberOrNull(at(row, 'salt_100')),
-      lactose100: numberOrNull(at(row, 'lactose_100')),
-      fructose100: numberOrNull(at(row, 'fructose_100')),
-      glucose100: numberOrNull(at(row, 'glucose_100')),
-      sorbitol100: numberOrNull(at(row, 'sorbitol_100')),
-      mannitol100: numberOrNull(at(row, 'mannitol_100')),
-      alcohol100: numberOrNull(at(row, 'alcohol_100')),
-      omega3100: numberOrNull(at(row, 'omega3_100')),
-      epaDha100: numberOrNull(at(row, 'epa_dha_100')),
-      arachidonic100: numberOrNull(at(row, 'arachidonic_100')),
-    }));
+    .map((row) => {
+      const nutrients: Record<string, number | null> = {};
+      for (const [csv, column] of CATALOG_COLUMNS) {
+        nutrients[column] = numberOrNull(at(row, csv));
+      }
+      return {
+        blsCode: at(row, 'bls_code')!,
+        nameDe: at(row, 'name_de')!,
+        groupKey: at(row, 'group_key')!,
+        isEveryday: everyday.has(at(row, 'bls_code')!),
+        searchAlias: aliases.get(at(row, 'bls_code')!) ?? null,
+        ...nutrients,
+      } as CatalogSeedRow;
+    });
 }
 
 /**
  * Idempotent on `bls_code`, which is NOT NULL — so unlike the lookup tables in
  * lookup.ts this needs no NULLS NOT DISTINCT dance and ON CONFLICT simply
- * matches. `db:check` still asserts the row count across two runs.
+ * matches. `db:check` still asserts the row count and the values across two
+ * runs.
  */
 export async function seedFoodCatalog(db: Database): Promise<number> {
   const rows = rowsFromCsv(BLS_CSV);
+
+  const set: Record<string, ReturnType<typeof sql>> = {
+    nameDe: sql`excluded.name_de`,
+    groupKey: sql`excluded.group_key`,
+    isEveryday: sql`excluded.is_everyday`,
+    searchAlias: sql`excluded.search_alias`,
+  };
+  for (const [csv, column] of CATALOG_COLUMNS) {
+    set[column] = sql.raw(`excluded.${csv}`);
+  }
 
   for (let i = 0; i < rows.length; i += BATCH_SIZE) {
     await db
@@ -120,29 +176,8 @@ export async function seedFoodCatalog(db: Database): Promise<number> {
       .values(rows.slice(i, i + BATCH_SIZE))
       .onConflictDoUpdate({
         target: foodCatalog.blsCode,
-        set: {
-          nameDe: sql`excluded.name_de`,
-          groupKey: sql`excluded.group_key`,
-          isEveryday: sql`excluded.is_everyday`,
-          searchAlias: sql`excluded.search_alias`,
-          kcal100: sql`excluded.kcal_100`,
-          protein100: sql`excluded.protein_100`,
-          fat100: sql`excluded.fat_100`,
-          satFat100: sql`excluded.sat_fat_100`,
-          carbs100: sql`excluded.carbs_100`,
-          sugar100: sql`excluded.sugar_100`,
-          fiber100: sql`excluded.fiber_100`,
-          salt100: sql`excluded.salt_100`,
-          lactose100: sql`excluded.lactose_100`,
-          fructose100: sql`excluded.fructose_100`,
-          glucose100: sql`excluded.glucose_100`,
-          sorbitol100: sql`excluded.sorbitol_100`,
-          mannitol100: sql`excluded.mannitol_100`,
-          alcohol100: sql`excluded.alcohol_100`,
-          omega3100: sql`excluded.omega3_100`,
-          epaDha100: sql`excluded.epa_dha_100`,
-          arachidonic100: sql`excluded.arachidonic_100`,
-        },
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        set: set as any,
       });
   }
   return rows.length;

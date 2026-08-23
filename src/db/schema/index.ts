@@ -9,3 +9,4 @@ export * from './medication';
 export * from './elimination';
 export * from './analytics';
 export * from './progress';
+export * from './nutrition';

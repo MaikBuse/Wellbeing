@@ -20,7 +20,7 @@ import { Stat, StatGroup } from '@/components/ui/stat';
 import { blsGroupLabel, foldToTopGroups } from '@/lib/food-groups';
 import { SYMPTOM_GROUP_LABELS } from '@/lib/scales';
 import { SAME_DAY_NOTICE } from '@/services/analysis/labels';
-import { rangeFromPreset } from '../range';
+import { parseRangePreset, rangeFromPreset } from '@/lib/range';
 
 export default async function PatternsPage({
   searchParams,
@@ -28,10 +28,7 @@ export default async function PatternsPage({
   searchParams: Promise<{ range?: string }>;
 }) {
   const { range } = await searchParams;
-  const preset: RangePreset =
-    range === '30' || range === '90' || range === '180' || range === 'all'
-      ? range
-      : '90';
+  const preset: RangePreset = parseRangePreset(range);
 
   return (
     <RangeFilter current={preset}>

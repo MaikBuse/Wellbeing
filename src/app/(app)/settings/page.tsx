@@ -1,9 +1,11 @@
+import Link from 'next/link';
 import { signOut } from '@/auth';
 import { requireUser } from '@/auth.helpers';
 import { getUserSettings } from '@/db/queries/users';
+import { openNutritionProfile } from '@/db/queries/nutrition';
 import { Logo } from '@/components/brand/logo';
 import { Button } from '@/components/ui/button';
-import { Card, CardMeta, CardTitle } from '@/components/ui/card';
+import { Card, CardHeader, CardMeta, CardTitle } from '@/components/ui/card';
 import { PageHeader } from '@/components/ui/page-header';
 import { InstallPrompt } from '@/components/pwa/install-prompt';
 import { TrackWeightSwitch } from '@/components/settings/track-weight-switch';
@@ -13,7 +15,18 @@ export const metadata = { title: 'Einstellungen – Wellbeing' };
 
 export default async function SettingsPage() {
   const user = await requireUser();
-  const settings = await getUserSettings(user.id);
+  const [settings, profile] = await Promise.all([
+    getUserSettings(user.id),
+    openNutritionProfile(user.id),
+  ]);
+
+  const goalsStatus =
+    profile === null
+      ? 'none'
+      : settings.nutritionAckVersion !== null &&
+          settings.nutritionAckAt !== null
+        ? 'active'
+        : 'unconfirmed';
 
   return (
     <main className="space-y-4 p-4">
@@ -50,6 +63,25 @@ export default async function SettingsPage() {
       </Card>
 
       <Card>
+        <CardHeader
+          action={
+            <Button asChild variant="outline" size="sm">
+              <Link href="/settings/nutrition-goals">Öffnen</Link>
+            </Button>
+          }
+        >
+          <CardTitle>Nährstoff-Ziele</CardTitle>
+          <CardMeta>
+            {goalsStatus === 'active'
+              ? 'Aktiv. Die Tagesansicht zeigt, wie weit du an deinen Zielwerten bist.'
+              : goalsStatus === 'unconfirmed'
+                ? 'Fast fertig — es fehlt nur die Bestätigung der Einordnung.'
+                : 'Noch nicht eingerichtet. Ein kurzer Fragebogen leitet Zielwerte für Makro- und Mikronährstoffe ab.'}
+          </CardMeta>
+        </CardHeader>
+      </Card>
+
+      <Card>
         <CardTitle>App installieren</CardTitle>
         <div className="mt-3">
           <InstallPrompt />
@@ -73,12 +105,12 @@ export default async function SettingsPage() {
       <Card>
         <CardTitle>Datenquellen</CardTitle>
         <CardMeta className="mt-1">
-          Nährwerte im Katalog stammen aus dem Bundeslebensmittelschlüssel:
-          Max Rubner-Institut (2025), BLS Version 4.0, Karlsruhe
-          (DOI 10.25826/Data20251217-134202-0), lizenziert unter CC BY 4.0.
-          Angaben zu verpackten Produkten kommen von Open Food Facts
-          (ODbL). Kennzeichnungen wie Histamin oder FODMAP stehen in keiner
-          der beiden Quellen und werden lokal aus Regeln abgeleitet.
+          Nährwerte und Mikronährstoffe im Katalog stammen aus dem
+          Bundeslebensmittelschlüssel: Max Rubner-Institut (2025), BLS Version
+          4.0, Karlsruhe (DOI 10.25826/Data20251217-134202-0), lizenziert unter
+          CC BY 4.0. Angaben zu verpackten Produkten kommen von Open Food Facts
+          (ODbL). Kennzeichnungen wie Histamin oder FODMAP stehen in keiner der
+          beiden Quellen und werden lokal aus Regeln abgeleitet.
         </CardMeta>
       </Card>
 

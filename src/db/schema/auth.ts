@@ -49,6 +49,19 @@ export const userSettings = pgTable(
     countTraceExposure: boolean('count_trace_exposure')
       .notNull()
       .default(false),
+    /*
+     * Nutrient targets are hidden until the wording about them being
+     * orientation values rather than a prescription has been acknowledged.
+     * This IS the on/off switch for the feature — there is no second flag, so
+     * there is no state where targets show without the framing around them.
+     *
+     * The version is a code constant (NUTRITION_DISCLAIMER_VERSION). Raising it
+     * hides the feature until the new wording is acknowledged, which is why the
+     * acknowledgement is not on the versioned profile: copying it into every
+     * profile edit would silently re-date a consent.
+     */
+    nutritionAckVersion: smallint('nutrition_ack_version'),
+    nutritionAckAt: tsz('nutrition_ack_at'),
     updatedAt: updatedAt(),
   },
   (t) => [

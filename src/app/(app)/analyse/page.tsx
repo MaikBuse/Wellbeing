@@ -16,7 +16,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { EmptyState } from '@/components/ui/empty-state';
 import { formatLogDateShort, type LogDate } from '@/lib/time';
 import { formatGermanNumber } from '@/lib/nutrition';
-import { rangeFromPreset } from './range';
+import { parseRangePreset, rangeFromPreset } from '@/lib/range';
 
 export default async function AnalyseOverviewPage({
   searchParams,
@@ -24,7 +24,7 @@ export default async function AnalyseOverviewPage({
   searchParams: Promise<{ range?: string }>;
 }) {
   const { range } = await searchParams;
-  const preset = normalisePreset(range);
+  const preset = parseRangePreset(range);
 
   return (
     <RangeFilter current={preset}>
@@ -38,12 +38,6 @@ export default async function AnalyseOverviewPage({
       </div>
     </RangeFilter>
   );
-}
-
-function normalisePreset(value: string | undefined): RangePreset {
-  return value === '30' || value === '90' || value === '180' || value === 'all'
-    ? value
-    : '90';
 }
 
 async function OverviewContent({ preset }: { preset: RangePreset }) {

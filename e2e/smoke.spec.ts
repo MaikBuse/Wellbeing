@@ -30,6 +30,18 @@ test('the progress screen is behind the same auth boundary', async ({
   await expect(page).toHaveURL(/\/signin$/);
 });
 
+test('the nutrient screens are behind the same auth boundary', async ({
+  page,
+}) => {
+  // They print body weight, a diet form and a list of what someone eats too
+  // little of. Reachable without a session, that is a health record.
+  await page.goto('/nutrition');
+  await expect(page).toHaveURL(/\/signin$/);
+
+  await page.goto('/settings/nutrition-goals/profile');
+  await expect(page).toHaveURL(/\/signin$/);
+});
+
 test('the export is behind the auth boundary too', async ({ request }) => {
   // A route handler is not covered by the (app) layout, so it does its own
   // check — and it hands out a full health-data series if it does not.

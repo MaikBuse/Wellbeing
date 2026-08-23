@@ -38,8 +38,24 @@ const ITEMS: NavItem[] = [
     alsoMatches: ['/day'],
   },
   { href: '/medications', label: 'Medis', icon: Pill },
-  { href: '/foods', label: 'Essen', icon: Apple },
-  { href: '/settings', label: 'Mehr', icon: Settings },
+  {
+    href: '/foods',
+    label: 'Essen',
+    icon: Apple,
+    // /nutrition has no tab of its own for the same reason /progress has none —
+    // a sixth target squeezes all six below comfortable thumb width. "Essen" is
+    // its semantic parent, and without this the indicator would simply vanish
+    // on the way there.
+    alsoMatches: ['/nutrition'],
+  },
+  {
+    href: '/settings',
+    label: 'Mehr',
+    icon: Settings,
+    // The nutrient-goal questionnaire lives under /settings but on its own
+    // segment, so `startsWith` already covers it; listed here for the reader.
+    alsoMatches: ['/settings/nutrition-goals'],
+  },
 ];
 
 /**

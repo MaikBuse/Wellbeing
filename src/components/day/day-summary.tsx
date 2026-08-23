@@ -5,6 +5,7 @@ import { SectionLabel } from '@/components/ui/section-label';
 import { Spotlight } from '@/components/ui/spotlight';
 import { Stat, StatGroup } from '@/components/ui/stat';
 import { roundKcal, type Nutrients } from '@/lib/nutrition';
+import type { ReactNode } from 'react';
 
 /**
  * The focal point of the day screen.
@@ -16,6 +17,11 @@ import { roundKcal, type Nutrients } from '@/lib/nutrition';
  * Note the day payload only carries kcal/protein/fat/carbs (see DayMealItem in
  * db/queries/day.ts); sugar, fibre and salt exist in the database but are not
  * fetched for a day, so the bar stays at three macros.
+ *
+ * `goals` is the nutrient-target block. It is rendered INSIDE this card rather
+ * than as a ninth widget: this one is already the eye's anchor and already
+ * carries kcal and the macro bar, so the targets belong in it. Null whenever
+ * there is no acknowledged profile, and then this renders exactly as before.
  */
 export function DaySummary({
   totals,
@@ -24,6 +30,7 @@ export function DaySummary({
   fatigue,
   wellbeing,
   isFlare,
+  goals = null,
 }: {
   totals: Nutrients;
   itemCount: number;
@@ -31,6 +38,7 @@ export function DaySummary({
   fatigue: number | null;
   wellbeing: number | null;
   isFlare: boolean;
+  goals?: ReactNode;
 }) {
   const kcal = totals.kcal === null ? null : roundKcal(totals.kcal);
   const hasFood = itemCount > 0 && kcal !== null;
@@ -65,6 +73,8 @@ export function DaySummary({
             carbsG={totals.carbsG}
           />
         ) : null}
+
+        {goals}
 
         {hasCheck || isFlare ? (
           <StatGroup className="mt-4 border-t border-line-soft pt-3">

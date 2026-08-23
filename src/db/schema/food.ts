@@ -110,6 +110,52 @@ export const foodCatalog = pgTable(
     omega3100: num('omega3_100', 10, 3),
     epaDha100: num('epa_dha_100', 10, 3),
     arachidonic100: num('arachidonic_100', 10, 3),
+    /*
+     * Micronutrients, added for the nutrient-goal feature. Same contract as the
+     * trigger nutrients above: NULL is "not measured" and contributes nothing,
+     * 0 is measured-and-none.
+     *
+     * Units stay BLS-native (mg, µg, g) rather than being normalised to one
+     * unit. Normalising would make `select vit_d_100 from food_catalog` print
+     * numbers nobody can sanity-check against a package label, and the targets
+     * are stated in these units too. `src/lib/nutrients.ts` declares the unit
+     * once, and nothing else may assume one.
+     *
+     * Note what is NOT here: selenium. The BLS carries exactly sixteen
+     * elements — NACL, NA, CLD, K, CA, MG, P, S, FE, ZN, ID, CU, MN, FD, CR,
+     * MO — and selenium is not one of them. A selenium target is therefore not
+     * trackable from this source and is not offered; see NUTRIENT_META.
+     *
+     * Scale 3 throughout: vitamin D is routinely below 0.05 µg/100 g, and the
+     * mg-scale elements are never large enough for the extra digits to cost
+     * anything. Sodium in table salt is ~39 000 mg/100 g, well inside
+     * numeric(10,3).
+     */
+    vitA100: num('vit_a_100', 10, 3),
+    vitD100: num('vit_d_100', 10, 3),
+    vitE100: num('vit_e_100', 10, 3),
+    vitK100: num('vit_k_100', 10, 3),
+    vitC100: num('vit_c_100', 10, 3),
+    vitB1100: num('vit_b1_100', 10, 3),
+    vitB2100: num('vit_b2_100', 10, 3),
+    niacinEq100: num('niacin_eq_100', 10, 3),
+    vitB6100: num('vit_b6_100', 10, 3),
+    folate100: num('folate_100', 10, 3),
+    vitB12100: num('vit_b12_100', 10, 3),
+    calcium100: num('calcium_100', 10, 3),
+    magnesium100: num('magnesium_100', 10, 3),
+    iron100: num('iron_100', 10, 3),
+    zinc100: num('zinc_100', 10, 3),
+    iodine100: num('iodine_100', 10, 3),
+    potassium100: num('potassium_100', 10, 3),
+    phosphorus100: num('phosphorus_100', 10, 3),
+    sodium100: num('sodium_100', 10, 3),
+    ala100: num('ala_100', 10, 3),
+    omega6100: num('omega6_100', 10, 3),
+    linoleic100: num('linoleic_100', 10, 3),
+    mufa100: num('mufa_100', 10, 3),
+    pufa100: num('pufa_100', 10, 3),
+    fiberSoluble100: num('fiber_soluble_100', 10, 3),
     /** Curated extra search words, from seed/data/bls-aliases.ts. */
     searchAlias: text('search_alias'),
     /** Normalised for search; see ../search-expr.ts for why these are stored. */

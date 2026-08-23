@@ -58,6 +58,20 @@ Routen englisch, UI-Texte deutsch. Keine i18n-Library.
 - **Nährwerte auf `meal_item` sind ein Snapshot** und werden nicht implizit neu
   berechnet. Kennzeichnungen (`food_tag`) sind es nicht und gelten rückwirkend.
   Diese Asymmetrie ist beabsichtigt.
+- **Mikronährstoffe und Zielwerte stehen auf der rückwirkenden Seite dieser
+  Asymmetrie.** Mikronährstoffe liegen nur in `food_catalog` und werden über
+  `food.bls_catalog_id` zur Lesezeit gejoint, wie `mealMeasuredRange` es für die
+  Trigger-Nährstoffe längst tut; eingefroren wird nur, was editierbar ist, und
+  ein Mikronährstoff hat kein Formular. Zielwerte sind Wissen und leben als
+  TS-Konstanten in `src/services/nutrition/targets/catalog.ts` — nur
+  Übersteuerungen stehen in der Datenbank. Ein BLS-Release verschiebt damit
+  historische Mikrowerte, und das ist gewollt.
+- **Nicht gemessen ist nicht null, auch nicht auf Tagesebene.** Jeder
+  Nährstoff-Tageswert trägt eine eigene, grammgewichtete Abdeckung
+  (`src/services/nutrition/coverage.ts`), und die Bewertung ist
+  richtungsabhängig: über einer Obergrenze gilt bei jeder Abdeckung, unter einer
+  Obergrenze erst ab 0,85. Ein unvollständig erfasster Tag kann nur
+  unterschätzen. Selen fehlt im BLS und wird deshalb gar nicht erst angeboten.
 - **Dosisänderungen schließen das alte Schema** (`valid_to`) und legen ein neues
   an. Nie eine bestehende Dosis überschreiben.
 - **Deutsche Dezimalkommas**: `Number('12,5')` ist `NaN`. Zahlenfelder gehen

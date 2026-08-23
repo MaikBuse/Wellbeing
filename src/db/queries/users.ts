@@ -9,6 +9,15 @@ export type UserSettings = {
   trackCycle: boolean;
   trackWeight: boolean;
   countTraceExposure: boolean;
+  /**
+   * Which version of the nutrient-goal framing was acknowledged.
+   *
+   * Null means the targets stay hidden. This is the on/off switch for the
+   * feature: there is no state in which the numbers show without the sentence
+   * saying they are orientation values rather than a prescription.
+   */
+  nutritionAckVersion: number | null;
+  nutritionAckAt: Date | null;
 };
 
 /**
@@ -57,6 +66,8 @@ export async function getUserSettings(userId: string): Promise<UserSettings> {
       trackCycle: true,
       trackWeight: true,
       countTraceExposure: false,
+      nutritionAckVersion: null,
+      nutritionAckAt: null,
     };
   }
   return {
@@ -65,5 +76,7 @@ export async function getUserSettings(userId: string): Promise<UserSettings> {
     trackCycle: row.trackCycle,
     trackWeight: row.trackWeight,
     countTraceExposure: row.countTraceExposure,
+    nutritionAckVersion: row.nutritionAckVersion,
+    nutritionAckAt: row.nutritionAckAt,
   };
 }

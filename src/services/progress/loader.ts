@@ -23,9 +23,11 @@ import { computeRaIndex } from '@/services/analysis/raIndex';
 import { expandDueDoses } from '@/services/medication/schedule';
 import { dayCompleteness, emptyCoverage } from './completeness';
 import {
+  NO_NUTRITION,
   evaluateMilestones,
   type Milestone,
   type MilestoneKey,
+  type NutritionMilestoneInput,
 } from './milestones';
 import { computeStreak } from './streak';
 import type {
@@ -81,7 +83,23 @@ export type ProgressData = {
  */
 export async function loadProgress(
   userId: string,
-  today: LogDate
+  today: LogDate,
+  /*
+   * The nutrient milestones' input, supplied by the caller.
+   *
+   * Passed in rather than loaded here so this file keeps knowing nothing about
+   * `services/nutrition` — progress consumes domain services, it does not reach
+   * into them, and the day screen already loads the nutrient data for its own
+   * widget. Defaults to "not active", which reports both milestones as
+   * inapplicable rather than as unreached.
+   *
+   * A promise is accepted so the caller can start that read in the same
+   * `Promise.all` as this one: it is only needed at the very end, right before
+   * the milestones are evaluated.
+   */
+  nutrition:
+    | NutritionMilestoneInput
+    | Promise<NutritionMilestoneInput> = NO_NUTRITION
 ): Promise<ProgressData> {
   // A brand-new account starts today rather than at some arbitrary date, so it
   // opens on one open day instead of a wall of missed ones.
@@ -147,6 +165,7 @@ export async function loadProgress(
     completeness: window,
     doses,
     raIndexDays,
+    nutrition: await nutrition,
   });
 
   const acknowledgedOn = new Map<MilestoneKey, LogDate>(

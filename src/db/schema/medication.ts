@@ -153,3 +153,42 @@ export const medicationIntakes = pgTable(
     index('intake_med_day_idx').on(t.medicationId, t.logDate),
   ]
 );
+
+/**
+ * What nutrients a preparation carries, so a supplement can count towards a
+ * nutrient target.
+ *
+ * A table rather than a column on `medication`, because the first fish-oil
+ * capsule carries EPA, DHA and vitamin E at once.
+ *
+ * CONVENTION instead of a discriminator: the amount is always "per piece", and
+ * a nutrient-carrying medication must be scheduled in `dose_unit = 'piece'`.
+ * Vitamin D at 1000 IU per drop with `dose_amount = 2` is 2000 IU. That removes
+ * a `basis` column and a whole class of unit errors; the price is one data
+ * entry rule, enforced in the action and in db:check.
+ *
+ * Only `taken` intakes count towards a target — deliberately unlike
+ * `steroid.ts`, which regenerates the planned series through `expandDueDoses`
+ * because plan-plus-correction is the best estimate of EXPOSURE. Here the
+ * question is what was actually swallowed, and an untapped past dose has no
+ * row at all. Regenerating one would invent vitamin D nobody took.
+ */
+export const medicationNutrients = pgTable(
+  'medication_nutrient',
+  {
+    id: pk(),
+    medicationId: uuid('medication_id')
+      .notNull()
+      .references(() => medications.id, { onDelete: 'cascade' }),
+    /** A key from NUTRIENT_META. */
+    nutrientKey: text('nutrient_key').notNull(),
+    amountPerPiece: num('amount_per_piece', 12, 3).notNull(),
+    /** 'mg' | 'ug' | 'g' | 'iu' — the unit printed on the package. */
+    unit: text('unit').notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    uniqueIndex('medication_nutrient_uq').on(t.medicationId, t.nutrientKey),
+    check('medn_amount_positive', sql`${t.amountPerPiece} > 0`),
+  ]
+);

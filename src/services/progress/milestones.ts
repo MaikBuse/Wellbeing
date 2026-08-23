@@ -25,6 +25,14 @@ export const MILESTONE_KEYS = [
   'meds_30',
   'tracked_60',
   'ra_index_45',
+  /*
+   * The nutrient pair, appended rather than slotted in: `milestones.test.ts`
+   * compares the returned order to this list element by element, and the
+   * `achievement` rows already written carry these keys forever. A rename
+   * orphans them.
+   */
+  'nutrition_ready',
+  'nutrition_20',
 ] as const;
 
 export type MilestoneKey = (typeof MILESTONE_KEYS)[number];
@@ -46,6 +54,11 @@ export type Milestone = {
 export const MEDS_RUN_NEEDED = 30;
 export const COMPLETE_WEEK_DAYS = 7;
 
+/** Defensible nutrient days before the trend is worth reading. */
+export const NUTRITION_READY_DAYS = 30;
+/** Days in the target range, counted singly and not as a run. */
+export const NUTRITION_GOOD_DAYS_NEEDED = 20;
+
 export type MilestoneInput = {
   streak: StreakResult;
   /** Oldest first, bounded window. */
@@ -54,6 +67,34 @@ export type MilestoneInput = {
   doses: ReadonlyMap<LogDate, DayDoses>;
   /** Days with a computable RA day value, ascending. */
   raIndexDays: readonly LogDate[];
+  /**
+   * Nutrient days, ascending. Required rather than optional: a caller that
+   * forgets it would silently report both nutrient milestones as unreachable.
+   */
+  nutrition: NutritionMilestoneInput;
+};
+
+/**
+ * What the nutrient milestones need, kept structural.
+ *
+ * `services/progress` must not import from `services/nutrition` — progress is
+ * the layer that consumes domain services, the same way it consumes
+ * `analysis/gates`, and a type-only dependency in that direction would be the
+ * first step towards a cycle.
+ */
+export type NutritionMilestoneInput = {
+  /** True once the questionnaire is filled in and acknowledged. */
+  active: boolean;
+  /** Days with a defensible score, ascending. Flare days are not among them. */
+  assessableDays: readonly LogDate[];
+  /** Of those, the days in the target range, ascending. */
+  goodDays: readonly LogDate[];
+};
+
+export const NO_NUTRITION: NutritionMilestoneInput = {
+  active: false,
+  assessableDays: [],
+  goodDays: [],
 };
 
 export function evaluateMilestones(input: MilestoneInput): Milestone[] {
@@ -154,6 +195,39 @@ export function evaluateMilestones(input: MilestoneInput): Milestone[] {
       unit: 'Tage',
       achievedOn: input.raIndexDays[GLOBAL_GATES.daysWithRaIndex - 1] ?? null,
       applicable: true,
+    },
+    /*
+     * The data milestone, sibling of `tracked_60` and `ra_index_45`. It marks
+     * the point where the trend becomes readable rather than the point where
+     * somebody did something well — the only kind of reward in this catalogue
+     * that changes what the software can say.
+     */
+    {
+      key: 'nutrition_ready',
+      title: 'Das Nährstoffbild steht',
+      description: `An ${NUTRITION_READY_DAYS} Tagen ließen sich die Tageswerte verlässlich berechnen. Ab hier zeigt der Verlauf mehr als ein Zufallsbild.`,
+      have: input.nutrition.assessableDays.length,
+      need: NUTRITION_READY_DAYS,
+      unit: 'Tage',
+      achievedOn:
+        input.nutrition.assessableDays[NUTRITION_READY_DAYS - 1] ?? null,
+      applicable: input.nutrition.active,
+    },
+    /*
+     * Counted singly, not as a run — and the description says so, because the
+     * difference is the whole point. A run would make one poor day erase a
+     * fortnight of them, on the axis where that is least fair.
+     */
+    {
+      key: 'nutrition_20',
+      title: 'Zwanzig Tage im Zielbereich',
+      description: `An ${NUTRITION_GOOD_DAYS_NEEDED} belastbaren Tagen lagen die Ziele überwiegend im Zielbereich — einzeln gezählt, nicht am Stück.`,
+      have: input.nutrition.goodDays.length,
+      need: NUTRITION_GOOD_DAYS_NEEDED,
+      unit: 'Tage',
+      achievedOn:
+        input.nutrition.goodDays[NUTRITION_GOOD_DAYS_NEEDED - 1] ?? null,
+      applicable: input.nutrition.active,
     },
   ];
 }

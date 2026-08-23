@@ -50,6 +50,20 @@
       "when": 1787479264716,
       "tag": "0006_cloudy_mauler",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1787488696216,
+      "tag": "0007_normal_lady_ursula",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1787488809007,
+      "tag": "0008_hot_random",
+      "breakpoints": true
     }
   ]
 }

@@ -16,6 +16,13 @@ import {
 } from '@/db/queries/medication';
 import { expandDueDoses } from '@/services/medication/schedule';
 import { loadProgress } from '@/services/progress/loader';
+import { NO_NUTRITION } from '@/services/progress/milestones';
+import {
+  DAY_PRIORITY,
+  loadNutrition,
+  nutritionMilestoneInput,
+} from '@/services/nutrition/loader';
+import { DayGoals } from '@/components/nutrition/day-goals';
 import { Card, CardHeader, CardMeta, CardTitle } from '@/components/ui/card';
 import { SectionLabel } from '@/components/ui/section-label';
 import { DailyLogForm } from '@/components/daily/daily-log-form';
@@ -52,6 +59,17 @@ export async function DayView({ logDate }: { logDate: LogDate }) {
   // depends on "is this today" agree within a render.
   const offsetDays = daysBetween(today, logDate);
 
+  /*
+   * Hoisted out of the `Promise.all` because two of its entries need it: the
+   * nutrient block renders it, and the milestone evaluation inside
+   * `loadProgress` reads a summary of it at the very end. Starting it here lets
+   * both of those wait on the same single read instead of racing two.
+   */
+  const nutritionPromise =
+    offsetDays === 0
+      ? loadNutrition(user.id, { to: logDate })
+      : Promise.resolve(null);
+
   const [
     meals,
     dailyLog,
@@ -63,6 +81,7 @@ export async function DayView({ logDate }: { logDate: LogDate }) {
     intakes,
     asNeeded,
     cycleEvents,
+    nutrition,
     progress,
   ] = await Promise.all([
     getDayMeals(user.id, logDate),
@@ -77,10 +96,24 @@ export async function DayView({ logDate }: { logDate: LogDate }) {
     settings.trackCycle
       ? menstrualEventsForDay(user.id, logDate)
       : Promise.resolve<string[]>([]),
+    // Only for today, like the progress read below and for the same reason.
+    nutritionPromise,
     // Only for today. A dated day is a record of what happened, not a place to
     // be nudged about the streak — and skipping the load keeps the history
     // screens as cheap as they were.
-    offsetDays === 0 ? loadProgress(user.id, logDate) : Promise.resolve(null),
+    //
+    // The nutrient milestones need the read above, but `loadProgress` only
+    // touches it at the very end, so the promise goes in and the two reads
+    // still run side by side.
+    offsetDays === 0
+      ? loadProgress(
+          user.id,
+          logDate,
+          nutritionPromise.then((data) =>
+            data === null ? NO_NUTRITION : nutritionMilestoneInput(data)
+          )
+        )
+      : Promise.resolve(null),
   ]);
 
   const selectedJoints = dailyLog ? await getDailyLogJoints(dailyLog.id) : [];
@@ -209,6 +242,17 @@ export async function DayView({ logDate }: { logDate: LogDate }) {
         fatigue={dailyLog?.fatigue ?? null}
         wellbeing={dailyLog?.wellbeing ?? null}
         isFlare={dailyLog?.isFlare ?? false}
+        goals={
+          nutrition?.today_ && nutrition.blocked === null ? (
+            <DayGoals
+              day={nutrition.today_}
+              priority={DAY_PRIORITY}
+              coverageShare={
+                nutrition.raw[nutrition.raw.length - 1]?.blsGramsShare ?? 0
+              }
+            />
+          ) : null
+        }
       />
 
       {/* Anchor targets for the "noch offen" chips in the streak hero. */}

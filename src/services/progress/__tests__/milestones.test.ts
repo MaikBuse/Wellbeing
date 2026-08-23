@@ -3,11 +3,15 @@ import { GLOBAL_GATES } from '@/services/analysis/gates';
 import { addDays, type LogDate } from '@/lib/time';
 import { dayCompleteness, emptyCoverage } from '../completeness';
 import {
+  NO_NUTRITION,
+  NUTRITION_GOOD_DAYS_NEEDED,
+  NUTRITION_READY_DAYS,
   evaluateMilestones,
   isAchieved,
   MILESTONE_KEYS,
   type Milestone,
   type MilestoneKey,
+  type NutritionMilestoneInput,
 } from '../milestones';
 import { computeStreak } from '../streak';
 import type { DayCompleteness, DayDoses } from '../types';
@@ -33,12 +37,30 @@ function evaluate(options: {
   completeness?: DayCompleteness[];
   doses?: Map<LogDate, DayDoses>;
   raIndexDays?: LogDate[];
+  nutrition?: NutritionMilestoneInput;
 }) {
   return evaluateMilestones({
     streak: streakFor(options.pattern),
     completeness: options.completeness ?? [],
     doses: options.doses ?? new Map(),
     raIndexDays: options.raIndexDays ?? [],
+    nutrition: options.nutrition ?? NO_NUTRITION,
+  });
+}
+
+function nutritionDays(count: number): LogDate[] {
+  return Array.from({ length: count }, (_, index) => addDays(START, index));
+}
+
+/** Every milestone text, with the nutrient pair active so it is included. */
+function allMilestones(): Milestone[] {
+  return evaluate({
+    pattern: 'x',
+    nutrition: {
+      active: true,
+      assessableDays: nutritionDays(NUTRITION_READY_DAYS),
+      goodDays: nutritionDays(NUTRITION_GOOD_DAYS_NEEDED),
+    },
   });
 }
 
@@ -49,8 +71,12 @@ function find(milestones: Milestone[], key: MilestoneKey): Milestone {
 }
 
 describe('the catalogue', () => {
+  /*
+   * Ten, and the number is asserted on purpose: adding a badge should be a
+   * deliberate act that edits this line, not something that slips in.
+   */
   it('stays small enough to mean something', () => {
-    expect(MILESTONE_KEYS).toHaveLength(8);
+    expect(MILESTONE_KEYS).toHaveLength(10);
   });
 
   it('produces exactly one entry per key', () => {
@@ -60,13 +86,44 @@ describe('the catalogue', () => {
     ]);
   });
 
-  it('never names a food, symptom or weight', () => {
-    // Health-data hygiene: these strings end up in a toast and a badge.
-    const forbidden = /gramm|kilo|kg|gluten|laktose|schmerz|symptom/i;
-    for (const milestone of evaluate({ pattern: 'x' })) {
-      expect(milestone.title).not.toMatch(forbidden);
-      expect(milestone.description).not.toMatch(forbidden);
+  /*
+   * Health-data hygiene: these strings end up in a toast and a badge.
+   *
+   * Note the trap the nutrient milestones walk into: `gramm` also matches
+   * "Programm" and "Diagramm", so any copy about the nutrient overview has to
+   * say "Verlauf" or "Übersicht". That is a feature of the guard, not a bug in
+   * it — the two words are one keystroke from a real leak.
+   */
+  const FORBIDDEN =
+    /gramm|kilo|\bkg\b|gluten|laktose|schmerz|symptom|diagnos|arthritis|gewicht|bmi|abnehm|di[äa]t/i;
+  /** No nutrient amount either: "1200 mg" on a badge is a health detail. */
+  const FORBIDDEN_AMOUNT = /\d+\s*(g|mg|µg|kcal)\b/i;
+
+  it('never names a food, symptom, weight or diagnosis', () => {
+    for (const milestone of allMilestones()) {
+      expect(milestone.title, milestone.key).not.toMatch(FORBIDDEN);
+      expect(milestone.description, milestone.key).not.toMatch(FORBIDDEN);
     }
+  });
+
+  it('never prints a nutrient amount', () => {
+    for (const milestone of allMilestones()) {
+      expect(milestone.title, milestone.key).not.toMatch(FORBIDDEN_AMOUNT);
+      expect(milestone.description, milestone.key).not.toMatch(FORBIDDEN_AMOUNT);
+    }
+  });
+
+  /*
+   * The guard checking itself, the way forbiddenWord.test.ts does. Without this
+   * a rename could turn the regex into something that matches nothing and the
+   * two tests above would keep passing while protecting nothing.
+   */
+  it('has a guard that would actually catch a violation', () => {
+    expect('Zwei Kilo abgenommen').toMatch(FORBIDDEN);
+    expect('Ein Diagramm der Woche').toMatch(FORBIDDEN);
+    expect('1200 mg erreicht').toMatch(FORBIDDEN_AMOUNT);
+    expect('Sieben Tage hintereinander erfasst.').not.toMatch(FORBIDDEN);
+    expect('Sieben Tage hintereinander erfasst.').not.toMatch(FORBIDDEN_AMOUNT);
   });
 });
 
@@ -242,5 +299,82 @@ describe('meds_30', () => {
       'meds_30'
     );
     expect(isAchieved(milestone)).toBe(true);
+  });
+});
+
+
+describe('die Nährstoff-Meilensteine', () => {
+  it('are inapplicable until the questionnaire is filled in and acknowledged', () => {
+    const milestones = evaluate({ pattern: 'x' });
+    expect(find(milestones, 'nutrition_ready').applicable).toBe(false);
+    expect(find(milestones, 'nutrition_20').applicable).toBe(false);
+  });
+
+  it('reports how far along the data milestone is', () => {
+    const milestones = evaluate({
+      pattern: 'x',
+      nutrition: {
+        active: true,
+        assessableDays: nutritionDays(12),
+        goodDays: [],
+      },
+    });
+    const ready = find(milestones, 'nutrition_ready');
+    expect(ready.applicable).toBe(true);
+    expect(ready.have).toBe(12);
+    expect(ready.need).toBe(NUTRITION_READY_DAYS);
+    expect(isAchieved(ready)).toBe(false);
+  });
+
+  it('marks the data milestone on the thirtieth defensible day', () => {
+    const days = nutritionDays(NUTRITION_READY_DAYS + 5);
+    const ready = find(
+      evaluate({
+        pattern: 'x',
+        nutrition: { active: true, assessableDays: days, goodDays: [] },
+      }),
+      'nutrition_ready'
+    );
+    expect(ready.achievedOn).toBe(days[NUTRITION_READY_DAYS - 1]);
+  });
+
+  /*
+   * Counted singly, not as a run. Twenty scattered good days earn it; a run
+   * would let one poor day erase a fortnight of them, on exactly the axis where
+   * that is least fair.
+   */
+  it('counts twenty good days even when they are not consecutive', () => {
+    const scattered = Array.from({ length: NUTRITION_GOOD_DAYS_NEEDED }, (_, i) =>
+      addDays(START, i * 3)
+    );
+    const milestone = find(
+      evaluate({
+        pattern: 'x',
+        nutrition: {
+          active: true,
+          assessableDays: nutritionDays(NUTRITION_READY_DAYS),
+          goodDays: scattered,
+        },
+      }),
+      'nutrition_20'
+    );
+    expect(isAchieved(milestone)).toBe(true);
+    // The date of the twentieth, not of the latest.
+    expect(milestone.achievedOn).toBe(scattered[NUTRITION_GOOD_DAYS_NEEDED - 1]);
+  });
+
+  it('stays open one day short', () => {
+    const milestone = find(
+      evaluate({
+        pattern: 'x',
+        nutrition: {
+          active: true,
+          assessableDays: nutritionDays(NUTRITION_READY_DAYS),
+          goodDays: nutritionDays(NUTRITION_GOOD_DAYS_NEEDED - 1),
+        },
+      }),
+      'nutrition_20'
+    );
+    expect(isAchieved(milestone)).toBe(false);
   });
 });

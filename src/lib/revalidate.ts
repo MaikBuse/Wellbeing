@@ -41,7 +41,16 @@ function expire(paths: readonly string[]): void {
  * breath. Leaving it out would reproduce the bug this module exists to prevent
  * — a new food revalidating `/foods` but not `/`.
  */
-const DAY = ['/', '/day/[date]', '/progress'] as const;
+const DAY = [
+  '/',
+  '/day/[date]',
+  '/progress',
+  // The nutrient screens are a function of the same rows: a logged meal moves
+  // every day total on them. Leaving them out would reproduce exactly the bug
+  // in the paragraph above — a new food refreshing /foods but not /.
+  '/nutrition',
+  '/nutrition/[nutrient]',
+] as const;
 
 /** Meals, reactions, the daily check — anything that belongs to one day. */
 export function revalidateDay(): void {
@@ -65,7 +74,12 @@ export function revalidateFoods(): void {
   expire([...DAY, '/foods', '/foods/[id]']);
 }
 
-/** Medications, schedules and intakes — the due-dose list lives on the day. */
+/**
+ * Medications, schedules and intakes — the due-dose list lives on the day.
+ *
+ * `/nutrition` rides along in DAY, and it has to: a preparation mapped to a
+ * nutrient, or a dose ticked off, moves the day totals there.
+ */
 export function revalidateMedications(): void {
   expire([...DAY, '/medications']);
 }
@@ -73,6 +87,17 @@ export function revalidateMedications(): void {
 /** Settings that change what the day screen renders. */
 export function revalidateSettings(): void {
   expire([...DAY, '/settings']);
+}
+
+/**
+ * The nutrient profile, the acknowledgement, a target override.
+ *
+ * Each of these changes what a target IS, so it makes every screen that prints
+ * one stale — the day screen included, because the summary card there carries
+ * four of them.
+ */
+export function revalidateNutritionGoals(): void {
+  expire([...DAY, '/settings', '/settings/nutrition-goals']);
 }
 
 /** The analysis section. A recompute changes every screen under /analyse. */

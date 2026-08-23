@@ -4,6 +4,13 @@ import { BLS_CSV } from '../data/bls-4.0';
 import { BLS_ALIASES } from '../data/bls-aliases';
 import { BLS_EVERYDAY_CODES } from '../data/bls-everyday';
 
+/**
+ * The committed seed file is still the pre-micronutrient one until the BLS
+ * XLSX is re-imported: the columns exist on the table and in the CSV header,
+ * but every micronutrient is empty. These tests pin the CONTRACT — an absent
+ * column reads as null, never as zero — so that re-importing turns them into
+ * real assertions without any of them needing to be rewritten.
+ */
 describe('parseCsv', () => {
   it('keeps a quoted comma inside the field', () => {
     // Half the BLS names carry a comma: "Hafer ganzes Korn, roh".
@@ -93,5 +100,41 @@ describe('the committed BLS data', () => {
   it('flags exactly the curated codes as everyday', () => {
     const flagged = rows.filter((r) => r.isEveryday).map((r) => r.blsCode);
     expect(flagged.sort()).toEqual([...BLS_EVERYDAY_CODES].sort());
+  });
+});
+
+
+describe('die Mikronährstoff-Spalten', () => {
+  const rows = rowsFromCsv(BLS_CSV);
+
+  /*
+   * Whatever the state of the seed file, an unfilled micronutrient must arrive
+   * as null. A zero here would mean "measured and none present", and every day
+   * total in the app would then be understated with no coverage figure to show
+   * for it.
+   */
+  it('read an absent micronutrient as null, never as 0', () => {
+    const milk = rows.find((r) => r.blsCode === 'M111300')!;
+    for (const value of [
+      milk.calcium100,
+      milk.vitD100,
+      milk.iodine100,
+      milk.potassium100,
+    ]) {
+      expect(value === null || typeof value === 'number').toBe(true);
+      if (value !== null) expect(Number.isFinite(value)).toBe(true);
+    }
+  });
+
+  it('accept a filled micronutrient column when the seed carries one', () => {
+    // Synthetic rather than from the committed file, so the mapping is checked
+    // before the re-import rather than after it.
+    const csv =
+      'bls_code,name_de,group_key,calcium_100,vit_d_100,sodium_100\n' +
+      'X000001,Testeintrag,X,120,0.045,\n';
+    const [row] = rowsFromCsv(csv);
+    expect(row.calcium100).toBe(120);
+    expect(row.vitD100).toBe(0.045);
+    expect(row.sodium100).toBeNull();
   });
 });

@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
+  BLS_KEYS,
+  BLS_NUTRIENTS,
   blsGroupKey,
+  checkPlausibility,
   columnIndexFromRef,
   csvEscape,
   decodeXmlEntities,
@@ -8,8 +11,10 @@ import {
   parseMeasured,
   parseSharedStrings,
   parseSheetRow,
+  resolveColumns,
   rowToBls,
   saltFromSodiumMg,
+  type BlsKey,
 } from '../import-bls';
 
 describe('parseMeasured', () => {
@@ -127,11 +132,114 @@ describe('blsGroupKey', () => {
   });
 });
 
+/**
+ * A resolved column map for the tests.
+ *
+ * Built from the verified indices where there are any, and from an arbitrary
+ * spare column above them where there are not — the point of these tests is the
+ * mapping, not the layout of a release nobody has read here.
+ */
+const TEST_COLUMNS = (() => {
+  const map = {} as Record<BlsKey, number>;
+  let spare = 400;
+  for (const key of BLS_KEYS) {
+    const expected = BLS_NUTRIENTS[key].expectedIndex;
+    map[key] = expected ?? (spare += 3);
+  }
+  return map;
+})();
+
+describe('resolveColumns', () => {
+  function header(entries: Record<number, string>): (string | undefined)[] {
+    const row: (string | undefined)[] = [];
+    for (const key of BLS_KEYS) {
+      row[TEST_COLUMNS[key]] = `${BLS_NUTRIENTS[key].prefix.trimEnd()} Bezeichnung [g/100g]`;
+    }
+    for (const [index, value] of Object.entries(entries)) {
+      row[Number(index)] = value;
+    }
+    return row;
+  }
+
+  it('resolves every nutrient from the header row', () => {
+    const resolved = resolveColumns(header({}));
+    expect(resolved.calcium).toBe(TEST_COLUMNS.calcium);
+    expect(resolved.kcal).toBe(BLS_NUTRIENTS.kcal.expectedIndex);
+  });
+
+  it('throws when a prefix matches nothing', () => {
+    const row = header({});
+    row[TEST_COLUMNS.calcium] = 'etwas ganz anderes';
+    expect(() => resolveColumns(row)).toThrow(/calcium/);
+  });
+
+  /*
+   * The real risk with short element codes: CA also starts CARTB, FOL starts
+   * FOLFD, NIA starts NIAEQ, K starts KCAL. The trailing space in the prefix is
+   * what keeps them apart, and this is the test that says so.
+   */
+  it('throws when a prefix is ambiguous rather than picking one', () => {
+    const row = header({});
+    row[500] = 'CA Calcium, zweites Vorkommen [mg/100g]';
+    expect(() => resolveColumns(row)).toThrow(/ambiguous/);
+  });
+
+  it('does not confuse CA with CARTB or NIA with NIAEQ', () => {
+    const row = header({});
+    row[510] = 'CARTB Beta-Carotin [µg/100g]';
+    row[513] = 'NIA Niacin [mg/100g]';
+    const resolved = resolveColumns(row);
+    expect(resolved.calcium).toBe(TEST_COLUMNS.calcium);
+    expect(resolved.niacinEq).toBe(TEST_COLUMNS.niacinEq);
+  });
+
+  it('throws when a verified index has moved, naming both numbers', () => {
+    const row = header({});
+    row[BLS_NUTRIENTS.kcal.expectedIndex as number] = 'irgendwas';
+    row[700] = 'ENERCC Energie (Kilokalorien) [kcal/100g]';
+    expect(() => resolveColumns(row)).toThrow(/expected column 6 but found 700/);
+  });
+});
+
+describe('checkPlausibility', () => {
+  it('accepts medians inside their band', () => {
+    const problems = checkPlausibility({
+      calcium: [100, 120, 140],
+      vitD: [0, 0.2, 1],
+    }).join(' ');
+    expect(problems).not.toMatch(/calcium/);
+    expect(problems).not.toMatch(/vitD/);
+  });
+
+  /* A band key with nothing in it is a wrong column, not a quiet pass. */
+  it('reports every band column that produced no value', () => {
+    const problems = checkPlausibility({});
+    expect(problems.length).toBeGreaterThan(0);
+    expect(problems.every((line) => line.includes('no measured'))).toBe(true);
+  });
+
+  /*
+   * The failure a header match cannot see: every nutrient occupies three
+   * columns, so a shift puts the Datenherkunft code — a small integer — into
+   * the value slot. It parses fine and it is quietly wrong.
+   */
+  it('catches a column shifted onto its provenance code', () => {
+    const provenanceCodes = Array.from({ length: 50 }, () => 2);
+    const problems = checkPlausibility({ calcium: provenanceCodes });
+    expect(problems.join(' ')).toMatch(/calcium/);
+    expect(problems.join(' ')).toMatch(/plausible band/);
+  });
+
+  it('reports a column with no measured value at all', () => {
+    expect(checkPlausibility({ calcium: [] }).join(' ')).toMatch(/no measured/);
+  });
+});
+
 describe('rowToBls', () => {
   function cells(overrides: Record<number, string>) {
     const row: (string | undefined)[] = [];
-    row[0] = 'M111300';
-    row[1] = 'Vollmilch frisch, 3,5 % Fett';
+    row[TEST_COLUMNS.code] = 'M111300';
+    row[TEST_COLUMNS.name] = 'Vollmilch frisch, 3,5 % Fett';
     for (const [index, value] of Object.entries(overrides)) {
       row[Number(index)] = value;
     }
@@ -139,27 +247,58 @@ describe('rowToBls', () => {
   }
 
   it('maps the columns a real milk row carries', () => {
-    const row = rowToBls(cells({ 6: '62', 123: '100', 216: '3.89' }));
+    const row = rowToBls(
+      cells({
+        [TEST_COLUMNS.kcal]: '62',
+        [TEST_COLUMNS.sodium]: '100',
+        [TEST_COLUMNS.lactose]: '3.89',
+        [TEST_COLUMNS.calcium]: '120',
+      }),
+      TEST_COLUMNS
+    );
     expect(row).toMatchObject({
       bls_code: 'M111300',
       group_key: 'M',
       kcal_100: '62',
       lactose_100: '3.89',
       salt_100: '0.25',
+      calcium_100: '120',
     });
   });
 
+  it('writes every micronutrient column, unmeasured ones as empty', () => {
+    const row = rowToBls(cells({ [TEST_COLUMNS.vitD]: '0.045' }), TEST_COLUMNS);
+    expect(row?.vit_d_100).toBe('0.045');
+    expect(row?.calcium_100).toBe('');
+    expect(row?.iodine_100).toBe('');
+  });
+
+  it('keeps the micronutrient units BLS-native', () => {
+    // Sodium goes into salt AND stays as sodium in mg: the salt column is a
+    // derived convenience, the element column is the measurement.
+    const row = rowToBls(cells({ [TEST_COLUMNS.sodium]: '100' }), TEST_COLUMNS);
+    expect(row?.salt_100).toBe('0.25');
+    expect(row?.sodium_100).toBe('100');
+  });
+
   it('sums the polyols but keeps all-unmeasured as unmeasured', () => {
-    expect(rowToBls(cells({ 189: '0.4', 192: '0.1' }))?.sorbitol_100).toBe('0.5');
-    expect(rowToBls(cells({}))?.sorbitol_100).toBe('');
+    expect(
+      rowToBls(
+        cells({ [TEST_COLUMNS.sorbitol]: '0.4', [TEST_COLUMNS.xylitol]: '0.1' }),
+        TEST_COLUMNS
+      )?.sorbitol_100
+    ).toBe('0.5');
+    expect(rowToBls(cells({}), TEST_COLUMNS)?.sorbitol_100).toBe('');
   });
 
   it('sums EPA and DHA when only one of them is measured', () => {
-    expect(rowToBls(cells({ 321: '0.5' }))?.epa_dha_100).toBe('0.5');
+    expect(
+      rowToBls(cells({ [TEST_COLUMNS.epa]: '0.5' }), TEST_COLUMNS)?.epa_dha_100
+    ).toBe('0.5');
   });
 
   it('skips a row without a code or a name', () => {
-    expect(rowToBls([])).toBeNull();
-    expect(rowToBls(['C131000'])).toBeNull();
+    expect(rowToBls([], TEST_COLUMNS)).toBeNull();
+    expect(rowToBls(['C131000'], TEST_COLUMNS)).toBeNull();
   });
 });

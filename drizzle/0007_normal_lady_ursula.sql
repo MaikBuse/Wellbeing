@@ -1,0 +1,25 @@
+ALTER TABLE "food_catalog" ADD COLUMN "vit_a_100" numeric(10, 3);--> statement-breakpoint
+ALTER TABLE "food_catalog" ADD COLUMN "vit_d_100" numeric(10, 3);--> statement-breakpoint
+ALTER TABLE "food_catalog" ADD COLUMN "vit_e_100" numeric(10, 3);--> statement-breakpoint
+ALTER TABLE "food_catalog" ADD COLUMN "vit_k_100" numeric(10, 3);--> statement-breakpoint
+ALTER TABLE "food_catalog" ADD COLUMN "vit_c_100" numeric(10, 3);--> statement-breakpoint
+ALTER TABLE "food_catalog" ADD COLUMN "vit_b1_100" numeric(10, 3);--> statement-breakpoint
+ALTER TABLE "food_catalog" ADD COLUMN "vit_b2_100" numeric(10, 3);--> statement-breakpoint
+ALTER TABLE "food_catalog" ADD COLUMN "niacin_eq_100" numeric(10, 3);--> statement-breakpoint
+ALTER TABLE "food_catalog" ADD COLUMN "vit_b6_100" numeric(10, 3);--> statement-breakpoint
+ALTER TABLE "food_catalog" ADD COLUMN "folate_100" numeric(10, 3);--> statement-breakpoint
+ALTER TABLE "food_catalog" ADD COLUMN "vit_b12_100" numeric(10, 3);--> statement-breakpoint
+ALTER TABLE "food_catalog" ADD COLUMN "calcium_100" numeric(10, 3);--> statement-breakpoint
+ALTER TABLE "food_catalog" ADD COLUMN "magnesium_100" numeric(10, 3);--> statement-breakpoint
+ALTER TABLE "food_catalog" ADD COLUMN "iron_100" numeric(10, 3);--> statement-breakpoint
+ALTER TABLE "food_catalog" ADD COLUMN "zinc_100" numeric(10, 3);--> statement-breakpoint
+ALTER TABLE "food_catalog" ADD COLUMN "iodine_100" numeric(10, 3);--> statement-breakpoint
+ALTER TABLE "food_catalog" ADD COLUMN "potassium_100" numeric(10, 3);--> statement-breakpoint
+ALTER TABLE "food_catalog" ADD COLUMN "phosphorus_100" numeric(10, 3);--> statement-breakpoint
+ALTER TABLE "food_catalog" ADD COLUMN "sodium_100" numeric(10, 3);--> statement-breakpoint
+ALTER TABLE "food_catalog" ADD COLUMN "ala_100" numeric(10, 3);--> statement-breakpoint
+ALTER TABLE "food_catalog" ADD COLUMN "omega6_100" numeric(10, 3);--> statement-breakpoint
+ALTER TABLE "food_catalog" ADD COLUMN "linoleic_100" numeric(10, 3);--> statement-breakpoint
+ALTER TABLE "food_catalog" ADD COLUMN "mufa_100" numeric(10, 3);--> statement-breakpoint
+ALTER TABLE "food_catalog" ADD COLUMN "pufa_100" numeric(10, 3);--> statement-breakpoint
+ALTER TABLE "food_catalog" ADD COLUMN "fiber_soluble_100" numeric(10, 3);

@@ -23,9 +23,12 @@ import {
   meals,
   medicationIntakes,
   medicationScheduleDoses,
+  medicationNutrients,
   medicationSchedules,
   medications,
   menstrualEvents,
+  nutritionTargetOverrides,
+  userNutritionProfiles,
   symptomEntries,
   symptomEntrySymptoms,
   symptomTypes,
@@ -44,7 +47,7 @@ import {
 } from '@/services/food/portions';
 import { nutrientsForGrams, resolveGrams } from '@/lib/nutrition';
 import { resolveNutrientBasis } from '@/lib/validation/food';
-import { addDays, eachLogDate, toLogDate } from '@/lib/time';
+import { addDays, eachLogDate, toLogDate, type LogDate } from '@/lib/time';
 import { expandDueDoses } from '@/services/medication/schedule';
 import {
   analysedTagDefs,
@@ -65,6 +68,14 @@ import {
   symptomDays,
 } from '@/db/queries/progress';
 import { loadProgress } from '@/services/progress/loader';
+import { MILESTONE_KEYS } from '@/services/progress/milestones';
+import {
+  medicationNutrientRows,
+  nutrientItemRange,
+} from '@/db/queries/nutrition';
+import { sumDayNutrients } from '@/services/nutrition/aggregate';
+import { supplementContributions } from '@/services/nutrition/supplements';
+import type { NutrientKey } from '@/lib/nutrients';
 import { computeStreak } from '@/services/progress/streak';
 import { assembleFacts } from '@/services/analysis/facts';
 import { runAnalysisForUser } from '@/services/analysis/loader';
@@ -2049,8 +2060,8 @@ console.log('\nfortschritt');
   );
   check(
     'the milestone catalogue is complete',
-    progress.milestones.length === 8,
-    String(progress.milestones.length)
+    progress.milestones.length === MILESTONE_KEYS.length,
+    `${progress.milestones.length} of ${MILESTONE_KEYS.length}`
   );
 
   // Acknowledging twice must be idempotent — a double tap or a second tab.
@@ -2077,6 +2088,300 @@ console.log('\nfortschritt');
   );
 
   await db.delete(achievements).where(eq(achievements.userId, user.id));
+}
+
+console.log('\nnährstoff-ziele');
+{
+  const anchor = '2026-07-15';
+
+  /*
+   * The catalogue columns exist and are seeded from the committed file. Until
+   * the BLS XLSX has been re-imported they are all NULL, and that is exactly
+   * the state the coverage rule has to survive — so this section writes its own
+   * per-100 values onto a private catalogue row rather than depending on the
+   * seed having micronutrients yet.
+   */
+  const [micro] = await db
+    .insert(foodCatalog)
+    .values({
+      blsCode: 'ZZ99999',
+      nameDe: 'Prüfeintrag Mikronährstoffe',
+      groupKey: 'Z',
+      kcal100: 100,
+      calcium100: 120,
+      vitD100: 0.045,
+      iodine100: null,
+    })
+    .onConflictDoUpdate({
+      target: foodCatalog.blsCode,
+      set: { calcium100: sql`120`, vitD100: sql`0.045`, iodine100: sql`null` },
+    })
+    .returning({ id: foodCatalog.id, calcium: foodCatalog.calcium100 });
+
+  check(
+    'a numeric(10,3) micronutrient survives the round trip',
+    micro.calcium === 120,
+    String(micro.calcium)
+  );
+
+  const [rounded] = await db
+    .select({ vitD: foodCatalog.vitD100 })
+    .from(foodCatalog)
+    .where(eq(foodCatalog.id, micro.id));
+  check(
+    'and keeps three decimals rather than two',
+    rounded.vitD === 0.045,
+    String(rounded.vitD)
+  );
+
+  // A catalog-linked food and a hand-entered one, so the coverage is a share
+  // rather than 0 or 1.
+  const [linked] = await db
+    .insert(foods)
+    .values({
+      createdByUserId: user.id,
+      name: 'Nährstoff-Prüfmilch',
+      source: 'bls',
+      blsCatalogId: micro.id,
+      kcal100: 100,
+      protein100: 3,
+    })
+    .onConflictDoNothing()
+    .returning({ id: foods.id });
+  const linkedId =
+    linked?.id ??
+    (
+      await db
+        .select({ id: foods.id })
+        .from(foods)
+        .where(sql`lower(${foods.name}) = 'nährstoff-prüfmilch'`)
+    )[0].id;
+
+  // Two main slots, so the day clears the under-documentation gate, and stated
+  // amounts throughout so it clears the portion-evidence gate.
+  for (const [slot, foodRef, grams] of [
+    ['breakfast', linkedId, 300],
+    ['dinner', foodId, 200],
+  ] as const) {
+    const occurredAt = new Date(`${anchor}T10:00:00Z`);
+    const [meal] = await db
+      .insert(meals)
+      .values({ userId: user.id, slot, occurredAt, logDate: anchor })
+      .returning({ id: meals.id });
+    await db
+      .insert(mealItems)
+      .values({ mealId: meal.id, foodId: foodRef, quantity: grams, unit: 'g', grams });
+  }
+
+  const items = await nutrientItemRange(user.id, anchor, anchor);
+  check('the nutrient read finds both items', items.length === 2, String(items.length));
+
+  const day = sumDayNutrients(anchor, items);
+
+  // 300 g at 120 mg/100 g. Hand-computed, and it has to come out of the real
+  // join rather than out of a fixture.
+  check(
+    'calcium is the catalog value scaled by the logged grams',
+    Math.abs((day.totals.calcium.fromFood ?? 0) - 360) < 1e-9,
+    String(day.totals.calcium.fromFood)
+  );
+
+  // The hand-entered food has no catalog row, so its grams lower the coverage
+  // without ever becoming zeroes in the sum.
+  check(
+    'coverage is the gram share of the catalog-linked food',
+    Math.abs(day.totals.calcium.coverage - 0.6) < 1e-9,
+    String(day.totals.calcium.coverage)
+  );
+  check(
+    'an unmeasured micronutrient is null, not 0',
+    day.totals.iodine.fromFood === null && day.totals.iodine.coverage === 0,
+    `${day.totals.iodine.fromFood} / ${day.totals.iodine.coverage}`
+  );
+
+  /*
+   * The precision trap, against real numeric columns: 0.045 µg per 100 g over
+   * 300 g is 0.135 µg. Rounded to two decimals per item it would be 0.14, and
+   * over a day of such items the error compounds.
+   */
+  check(
+    'micronutrient sums are not rounded per item',
+    Math.abs((day.totals.vitD.fromFood ?? 0) - 0.135) < 1e-9,
+    String(day.totals.vitD.fromFood)
+  );
+
+  // --- Profile versioning --------------------------------------------------
+  await db.insert(userNutritionProfiles).values({
+    userId: user.id,
+    referenceSex: 'female',
+    birthYear: 1980,
+    heightCm: 165,
+    referenceWeightKg: 65,
+    weightSource: 'manual',
+    validFrom: anchor,
+  });
+
+  await expectReject('two open profile versions rejected', () =>
+    db.insert(userNutritionProfiles).values({
+      userId: user.id,
+      validFrom: addDays(anchor, 1),
+    })
+  );
+
+  await expectReject('an implausible body height rejected', () =>
+    db.insert(userNutritionProfiles).values({
+      userId: user.id,
+      heightCm: 40,
+      validFrom: anchor,
+      validTo: anchor,
+    })
+  );
+
+  // A protein cap without a renal diagnosis is a restriction nobody ordered.
+  await expectReject('a protein cap without a renal diagnosis rejected', () =>
+    db.insert(userNutritionProfiles).values({
+      userId: user.id,
+      proteinMaxGPerKg: 0.8,
+      validFrom: anchor,
+      validTo: anchor,
+    })
+  );
+
+  await expectReject('a menopause stage without a female reference rejected', () =>
+    db.insert(userNutritionProfiles).values({
+      userId: user.id,
+      referenceSex: 'male',
+      menopauseStage: 'post',
+      validFrom: anchor,
+      validTo: anchor,
+    })
+  );
+
+  // --- Target overrides ----------------------------------------------------
+  await db.insert(nutritionTargetOverrides).values({
+    userId: user.id,
+    nutrientKey: 'fiber',
+    minValue: 35.5,
+    unit: 'g',
+    validFrom: anchor,
+  });
+
+  const [override] = await db
+    .select({ min: nutritionTargetOverrides.minValue })
+    .from(nutritionTargetOverrides)
+    .where(eq(nutritionTargetOverrides.userId, user.id));
+  check(
+    'an override keeps its decimals',
+    override.min === 35.5,
+    String(override.min)
+  );
+
+  await expectReject('two open overrides for one nutrient rejected', () =>
+    db.insert(nutritionTargetOverrides).values({
+      userId: user.id,
+      nutrientKey: 'fiber',
+      minValue: 40,
+      unit: 'g',
+      validFrom: addDays(anchor, 1),
+    })
+  );
+
+  await expectReject('an override with neither bound rejected', () =>
+    db.insert(nutritionTargetOverrides).values({
+      userId: user.id,
+      nutrientKey: 'calcium',
+      unit: 'mg',
+      validFrom: anchor,
+    })
+  );
+
+  // --- Supplements ---------------------------------------------------------
+  const [supplement] = await db
+    .insert(medications)
+    .values({
+      userId: user.id,
+      name: 'Prüf-Vitamin-D',
+      category: 'supplement',
+      form: 'drops',
+    })
+    .returning({ id: medications.id });
+
+  await db.insert(medicationNutrients).values({
+    medicationId: supplement.id,
+    nutrientKey: 'vitD',
+    amountPerPiece: 1000,
+    unit: 'iu',
+  });
+
+  const intakeRows: {
+    logDate: LogDate;
+    medicationId: string;
+    status: string;
+    doseAmount: number;
+    doseUnit: string;
+  }[] = [
+    { logDate: anchor, medicationId: supplement.id, status: 'taken', doseAmount: 2, doseUnit: 'piece' },
+    { logDate: anchor, medicationId: supplement.id, status: 'skipped', doseAmount: 2, doseUnit: 'piece' },
+  ];
+
+  const mapping = await medicationNutrientRows(user.id);
+  const contributions = supplementContributions(
+    intakeRows,
+    mapping.map((row) => ({
+      medicationId: row.medicationId,
+      nutrientKey: row.nutrientKey as NutrientKey,
+      amountPerPiece: row.amountPerPiece,
+      unit: row.unit,
+    }))
+  );
+
+  check(
+    'a taken supplement contributes and a skipped one does not',
+    contributions.length === 1 &&
+      Math.abs(contributions[0].amount - 50) < 1e-9,
+    JSON.stringify(contributions),
+  );
+
+  /*
+   * The third case is the one worth writing down, because it argues from the
+   * ABSENCE of a row: a planned dose nobody ticked off has no intake row at
+   * all. Reconstructing it from the schedule — which is what steroid.ts does,
+   * correctly, for exposure — would invent vitamin D nobody swallowed.
+   */
+  const untouched = supplementContributions(
+    [],
+    mapping.map((row) => ({
+      medicationId: row.medicationId,
+      nutrientKey: row.nutrientKey as NutrientKey,
+      amountPerPiece: row.amountPerPiece,
+      unit: row.unit,
+    }))
+  );
+  check('an untapped planned dose contributes nothing', untouched.length === 0);
+
+  const withSupplement = sumDayNutrients(anchor, items, contributions);
+  check(
+    'the supplement is added to the day but stays separately visible',
+    withSupplement.totals.vitD.fromSupplement === 50 &&
+      Math.abs((withSupplement.totals.vitD.total ?? 0) - 50.135) < 1e-9,
+    String(withSupplement.totals.vitD.total)
+  );
+
+  await db
+    .delete(medicationNutrients)
+    .where(eq(medicationNutrients.medicationId, supplement.id));
+  await db.delete(medications).where(eq(medications.id, supplement.id));
+  await db
+    .delete(nutritionTargetOverrides)
+    .where(eq(nutritionTargetOverrides.userId, user.id));
+  await db
+    .delete(userNutritionProfiles)
+    .where(eq(userNutritionProfiles.userId, user.id));
+
+  // The private catalogue row has to go, or the next run finds 7141 entries
+  // where the seed check expects 7140. `food.bls_catalog_id` is ON DELETE SET
+  // NULL, so the test food survives with its link cleared.
+  await db.delete(foodCatalog).where(eq(foodCatalog.blsCode, 'ZZ99999'));
 }
 
 // Clean up. Meals have to go first: meal_item.food_id is deliberately
