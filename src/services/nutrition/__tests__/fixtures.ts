@@ -91,3 +91,17 @@ export function item(
     ...overrides,
   };
 }
+
+/**
+ * An item in the shape `quickAddFood` actually writes.
+ *
+ * `quantity 1`, `unit 'portion'`, `portionId null` — which `hasStatedAmount`
+ * reads as "no amount was stated" — and no catalog link. The defaults above are
+ * the opposite of this on both counts, which is why the day screen could ship
+ * with four permanently empty bars and a green test suite.
+ */
+export function quickAddItem(
+  overrides: Partial<NutrientItemRow> & Pick<NutrientItemRow, 'grams'>
+): NutrientItemRow {
+  return item({ hasStatedAmount: false, ...overrides });
+}

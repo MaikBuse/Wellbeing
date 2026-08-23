@@ -127,6 +127,12 @@ export function assessNutrient(
     isLowerBound: evaluation.isLowerBound,
     attainment: scored ? attainment(total.total as number, target) : null,
     scored,
+    // Both come straight from the evaluation. `evaluateTarget` has always
+    // computed `showValue` and this is the first consumer: without it every
+    // 'unknown' collapsed into "zu wenig Messwerte" in the UI, including the
+    // three cases where a number was sitting right there.
+    showValue: evaluation.showValue,
+    judged,
   };
 }
 

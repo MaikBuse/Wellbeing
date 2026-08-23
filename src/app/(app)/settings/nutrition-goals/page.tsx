@@ -6,6 +6,7 @@ import { PageHeader } from '@/components/ui/page-header';
 import { SectionLabel } from '@/components/ui/section-label';
 import { GoalRow } from '@/components/nutrition/goal-row';
 import { NUTRIENT_META, type NutrientGroup } from '@/lib/nutrients';
+import { GROUP_LABEL } from '@/lib/nutrition-goals';
 import { formatGermanNumber } from '@/lib/nutrition';
 import { supplementCandidates } from '@/db/queries/nutrition';
 import { SupplementMapping } from '@/components/nutrition/supplement-mapping';
@@ -13,14 +14,6 @@ import { loadTargets } from '@/services/nutrition/loader';
 import { targetDisplayOrder } from '@/services/nutrition/targets/derive';
 
 export const metadata = { title: 'Nährstoff-Ziele – Wellbeing' };
-
-const GROUP_LABEL: Record<NutrientGroup, string> = {
-  energy: 'Energie',
-  macro: 'Makronährstoffe',
-  fat_quality: 'Fettsäuren und Ballaststoffe',
-  vitamin: 'Vitamine',
-  mineral: 'Mineralstoffe',
-};
 
 export default async function NutritionGoalsPage() {
   const user = await requireUser();

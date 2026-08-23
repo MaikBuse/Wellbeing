@@ -1,4 +1,4 @@
-import { AlertTriangle, Check, HelpCircle } from 'lucide-react';
+import { AlertTriangle, Check, HelpCircle, Info } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 /**
@@ -17,6 +17,18 @@ import { cn } from '@/lib/utils';
  * against a limit the track is the allowance and the excess gets its own
  * segment past the notch, separated by a two-pixel gap.
  *
+ * FIVE, because "no verdict" and "no measurement" are not the same thing.
+ * 'info' is a bar that fills and a number that prints, with no met/missed claim
+ * attached: energy and total fat are never judged at all, and a day whose
+ * amounts were not stated can only understate. Both used to render as
+ * 'unmeasured' — an empty dashed track reading "zu wenig Messwerte" above data
+ * that was sitting right there.
+ *
+ * `hasScoredLimit` decides what the segment past the notch means. Without a
+ * scored limit the notch is the BOTTOM of a recommended band, and being above
+ * it costs nothing (see `bandMax` in targets/types.ts) — so painting that
+ * excess in the alarm colour would report a breach on every ordinary day.
+ *
  * The supplement share is a second, hatched segment in the same bar. A target
  * reached only through a preparation should look like that.
  *
@@ -24,7 +36,7 @@ import { cn } from '@/lib/utils';
  * the number sits beside it as real text.
  */
 
-export type GoalMeterStatus = 'below' | 'in' | 'over' | 'unmeasured';
+export type GoalMeterStatus = 'below' | 'in' | 'over' | 'info' | 'unmeasured';
 
 export type GoalMeterProps = {
   label: string;
@@ -37,6 +49,14 @@ export type GoalMeterProps = {
   fill: number;
   /** Share of `fill` that came from a preparation rather than from food. */
   supplementFill?: number;
+  /**
+   * Whether the notch is a SCORED limit rather than the bottom of a band.
+   *
+   * False for `protein`, `fat`, `carbs` and `energy`, whose upper end is a
+   * `bandMax`. Overshooting those is normal and is drawn as more of the same
+   * fill; overshooting a real limit gets the alarm segment.
+   */
+  hasScoredLimit?: boolean;
   /** "zu wenig Messwerte", "über der Grenze" — the state as a word. */
   statusText: string;
   /** Prefixes the number when the day can only understate it. */
@@ -48,6 +68,10 @@ const STATUS_FILL: Record<GoalMeterStatus, string> = {
   below: 'bg-chart-1',
   in: 'bg-ok',
   over: 'bg-ramp-4',
+  // Neutral, and deliberately not from the rose ramp: rose means "worse
+  // symptoms" everywhere in this app, and a withheld verdict is not a bad
+  // outcome — the same sentence `coverage-note.tsx` is built around.
+  info: 'bg-muted/40',
   unmeasured: 'bg-transparent',
 };
 
@@ -59,6 +83,9 @@ function Glyph({ status }: { status: GoalMeterStatus }) {
   if (status === 'unmeasured') {
     return <HelpCircle aria-hidden className="size-3.5 text-muted" />;
   }
+  if (status === 'info') {
+    return <Info aria-hidden className="size-3.5 text-muted" />;
+  }
   return null;
 }
 
@@ -69,6 +96,7 @@ export function GoalMeter({
   status,
   fill,
   supplementFill = 0,
+  hasScoredLimit = true,
   statusText,
   isLowerBound = false,
   className,
@@ -125,11 +153,18 @@ export function GoalMeter({
               ) : null}
               {overshoot > 0 ? (
                 // Two-pixel surface gap, then the excess as its own segment:
-                // past the notch is a different thing, not more of the same.
+                // past a LIMIT is a different thing, not more of the same. Past
+                // the bottom of a band it is exactly more of the same, so it
+                // keeps the fill colour and loses the gap.
                 <>
-                  <span className="block h-full w-0.5 shrink-0 bg-card" />
+                  {hasScoredLimit ? (
+                    <span className="block h-full w-0.5 shrink-0 bg-card" />
+                  ) : null}
                   <span
-                    className="block h-full bg-ramp-5"
+                    className={cn(
+                      'block h-full',
+                      hasScoredLimit ? 'bg-ramp-5' : STATUS_FILL[status]
+                    )}
                     style={{ width: `${overshoot * 100}%` }}
                   />
                 </>

@@ -200,6 +200,37 @@ export const NUTRIENT_TARGETS: Partial<Record<NutrientKey, TargetDefinition>> = 
     },
   }),
 
+  /*
+   * Carbohydrates are the remainder of the energy split, so they are shown and
+   * never judged — exactly like total fat.
+   *
+   * Judging them would score the same energy split twice: protein carries a
+   * real minimum, saturated fat and sugar carry real limits, and what is left
+   * over is arithmetic rather than a recommendation. The number that matters in
+   * this row is the fibre line further down, not the total.
+   */
+  carbs: def('carbs', {
+    evidence: 'dach_reference',
+    showVerdict: false,
+    inScore: false,
+    cautionDe:
+      'Ein Verteilungswert, kein Tagessoll. Entscheidend ist die Ballaststoff-Zeile, nicht die Menge.',
+    resolve: (ctx) => {
+      if (ctx.energyKcal === null) return unavailable('carbs', NO_ENERGY, ['dach']);
+      return value('carbs', {
+        direction: 'range',
+        min: gramsForEnergyShare(ctx.energyKcal, 0.5, 'carbs'),
+        // Never a scored limit. D-A-CH says "more than 50 %", so the top of the
+        // corridor is orientation and must cost nothing — see the comment on
+        // `bandMax` in targets/types.ts.
+        max: null,
+        bandMax: gramsForEnergyShare(ctx.energyKcal, 0.6, 'carbs'),
+        sourceKeys: ['dach'],
+        rationaleDe: `50–60 % der ${Math.round(ctx.energyKcal)} kcal, umgerechnet mit 4 kcal je Gramm.`,
+      });
+    },
+  }),
+
   /* Total fat is a distribution, not a goal — shown as a corridor, not scored. */
   fat: def('fat', {
     evidence: 'dge_general',

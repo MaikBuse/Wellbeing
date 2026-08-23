@@ -213,6 +213,37 @@ describe('Eisen und Zink', () => {
   });
 });
 
+describe('Kohlenhydrate', () => {
+  it('is a corridor of 50-60 % of the energy target', () => {
+    const context = ctx();
+    const energy = context.energyKcal!;
+    const carbs = NUTRIENT_TARGETS.carbs!.resolve(context);
+
+    // 4 kcal per gram, and against the energy TARGET rather than the energy
+    // eaten — otherwise a big day would raise its own corridor.
+    expect(carbs.min).toBeCloseTo((energy * 0.5) / 4);
+    expect(carbs.bandMax).toBeCloseTo((energy * 0.6) / 4);
+    expect(carbs.min).toBe(gramsForEnergyShare(energy, 0.5, 'carbs'));
+  });
+
+  it('never carries a scored limit', () => {
+    // D-A-CH says "more than 50 %", so the top of the corridor is orientation.
+    // A `max` here would score being above it, and being above it is normal.
+    expect(NUTRIENT_TARGETS.carbs!.resolve(ctx()).max).toBeNull();
+  });
+
+  it('is shown and never judged, like total fat', () => {
+    expect(NUTRIENT_TARGETS.carbs!.showVerdict).toBe(false);
+    expect(NUTRIENT_TARGETS.carbs!.inScore).toBe(false);
+  });
+
+  it('has no value without an energy target', () => {
+    const resolved = NUTRIENT_TARGETS.carbs!.resolve(ctx({ weightKg: null }));
+    expect(resolved.min).toBeNull();
+    expect(resolved.unavailableReason).not.toBeNull();
+  });
+});
+
 describe('Katalog-Struktur', () => {
   it('gives every target a source that exists', () => {
     const context = ctx();
@@ -234,8 +265,9 @@ describe('Katalog-Struktur', () => {
     }
   });
 
-  it('keeps energy, folate, iron and the ratio out of the score', () => {
+  it('keeps energy, carbs, folate, iron and the ratio out of the score', () => {
     expect(NUTRIENT_TARGETS.energy!.inScore).toBe(false);
+    expect(NUTRIENT_TARGETS.carbs!.inScore).toBe(false);
     expect(NUTRIENT_TARGETS.folate!.inScore).toBe(false);
     expect(NUTRIENT_TARGETS.iron!.inScore).toBe(false);
     expect(NUTRIENT_TARGETS.n6n3Ratio!.inScore).toBe(false);

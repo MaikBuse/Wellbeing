@@ -50,6 +50,12 @@ export function unknownEvaluation(): TargetEvaluation {
   return { status: 'unknown', ratio: null, isLowerBound: true, showValue: false };
 }
 
+/** value / bound, for ranking. Null when the target has no bound to rank against. */
+function ratioAgainst(value: number, target: TargetValue): number | null {
+  const bound = target.min ?? target.max;
+  return bound !== null && bound > 0 ? value / bound : null;
+}
+
 /**
  * Compare one day's intake against one target.
  *
@@ -88,18 +94,38 @@ export function evaluateTarget(
 ): TargetEvaluation {
   if (target.unavailableReason !== null) return unknownEvaluation();
 
+  const value = total.total;
+  if (value === null) return unknownEvaluation();
+
   /*
    * An unedited catalog entry is exactly 100 g, because the copy sets no
    * portion weight. Without stated amounts the "day total" is just a pile of
    * catalog values, and that is as true of the kcal number as of the calcium
    * one — so this gate withholds every verdict, macros included.
+   *
+   * It withholds the VERDICT, not the number. `quickAddFood` is the only add
+   * path in the app and it writes `quantity 1, unit 'portion', portionId null`
+   * for any food without a default measure, so this branch is the normal case
+   * on a fresh day — returning `showValue: false` here made the day screen
+   * print "zu wenig Messwerte" under every bar while the kcal line above it
+   * filled from the very same rows.
+   *
+   * `isLowerBound` is FALSE here, and that is the one place this gate differs
+   * from a poorly covered nutrient. A missing measurement can only understate;
+   * a missing AMOUNT can go either way, because the 100 g the copy defaults to
+   * may be more than what was eaten as easily as less. So the number is an
+   * estimate, not a floor, and it must not be printed with "mindestens" in
+   * front of it. That asymmetry is also why not even 'exceeded' survives this
+   * gate: over a limit is only a fact while the amounts are real.
    */
   if (context.portionEvidenceShare < MIN_PORTION_EVIDENCE_SHARE) {
-    return unknownEvaluation();
+    return {
+      status: 'unknown',
+      ratio: ratioAgainst(value, target),
+      isLowerBound: false,
+      showValue: total.coverage >= MIN_COVERAGE_FOR_VALUE,
+    };
   }
-
-  const value = total.total;
-  if (value === null) return unknownEvaluation();
 
   const wellCovered =
     total.coverage >= MIN_COVERAGE_FOR_TARGET && context.dayWellDocumented;
@@ -125,8 +151,7 @@ export function evaluateTarget(
     };
   }
 
-  const bound = target.min ?? target.max;
-  const ratio = bound !== null && bound > 0 ? value / bound : null;
+  const ratio = ratioAgainst(value, target);
   const showValue = total.coverage >= MIN_COVERAGE_FOR_VALUE;
 
   if (!wellCovered) {

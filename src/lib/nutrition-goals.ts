@@ -1,6 +1,7 @@
 import {
   NUTRIENT_META,
   UNIT_LABEL,
+  type NutrientGroup,
   type NutrientKey,
 } from '@/lib/nutrients';
 import { formatGermanNumber } from '@/lib/nutrition';
@@ -22,11 +23,45 @@ export const DIRECTION_WORD = {
   range: 'Zielbereich',
 } as const;
 
+/**
+ * `info` is the generic word. `statusWord` below picks the specific one, because
+ * "this nutrient is never judged" and "this day cannot carry a verdict yet" are
+ * different statements and the bar looks identical in both.
+ */
 export const STATUS_WORD: Record<GoalMeterStatus, string> = {
   below: 'unter dem Ziel',
   in: 'im Ziel',
   over: 'über der Grenze',
+  info: 'ohne Bewertung',
   unmeasured: 'zu wenig Messwerte',
+};
+
+/** The word under the bar. Splits `info` by whether the nutrient is judged. */
+export function statusWord(
+  status: GoalMeterStatus,
+  judged: boolean
+): string {
+  if (status !== 'info') return STATUS_WORD[status];
+  return judged ? 'noch nicht bewertbar' : 'nur zur Einordnung';
+}
+
+/**
+ * German names for the nutrient groups.
+ *
+ * Lives here rather than in the settings page because two screens print them
+ * now — that page and the per-day detail list on /nutrition. Two copies of the
+ * same labels are exactly the drift `revalidate.ts` and `nutrients.ts` open
+ * their files complaining about.
+ *
+ * "Fettsäuren und Ballaststoffe" is wider than `fat_quality` sounds: the group
+ * also holds `fiberSoluble`.
+ */
+export const GROUP_LABEL: Record<NutrientGroup, string> = {
+  energy: 'Energie',
+  macro: 'Makronährstoffe',
+  fat_quality: 'Fettsäuren und Ballaststoffe',
+  vitamin: 'Vitamine',
+  mineral: 'Mineralstoffe',
 };
 
 /** Format an amount in the nutrient's own unit. */
@@ -61,6 +96,15 @@ export function formatTarget(target: TargetValue, key: NutrientKey): string {
   return 'kein Zielwert';
 }
 
+/**
+ * 'unknown' is not one state, it is two.
+ *
+ * `showValue` is the split: a nutrient that is never judged, a day whose
+ * amounts were not stated and a day with a single main meal all arrive here as
+ * 'unknown' WITH a defensible number, and only a genuinely unmeasured nutrient
+ * arrives without one. Collapsing all four into 'unmeasured' is what left the
+ * day screen showing four empty dashed bars after a normal quick-add.
+ */
 export function meterStatus(assessment: NutrientAssessment): GoalMeterStatus {
   switch (assessment.status) {
     case 'met':
@@ -70,7 +114,7 @@ export function meterStatus(assessment: NutrientAssessment): GoalMeterStatus {
     case 'missed':
       return 'below';
     default:
-      return 'unmeasured';
+      return assessment.showValue ? 'info' : 'unmeasured';
   }
 }
 
@@ -108,6 +152,8 @@ export type GoalMeterView = {
   fill: number;
   supplementFill: number;
   isLowerBound: boolean;
+  /** False when the notch is the bottom of a band rather than a scored limit. */
+  hasScoredLimit: boolean;
   /** "davon 25 µg aus Präparat", or null. */
   supplementNote: string | null;
 };
@@ -119,16 +165,19 @@ export function toMeterView(assessment: NutrientAssessment): GoalMeterView {
   return {
     key: assessment.key,
     label: NUTRIENT_META[assessment.key].labelDe,
+    // Only a genuinely unmeasured nutrient hides its number. 'info' prints
+    // one, prefixed with "mind." wherever the day can only understate it.
     valueText:
       status === 'unmeasured'
         ? null
         : formatAmount(assessment.total.total, assessment.key),
     targetText: formatTarget(assessment.target, assessment.key),
-    statusText: STATUS_WORD[status],
+    statusText: statusWord(status, assessment.judged),
     status,
     fill: meterFill(assessment),
     supplementFill: supplementFill(assessment),
     isLowerBound: status !== 'unmeasured' && assessment.isLowerBound,
+    hasScoredLimit: assessment.target.max !== null,
     supplementNote:
       fromSupplement > 0
         ? `davon ${formatAmount(fromSupplement, assessment.key)} aus einem Präparat`
@@ -136,44 +185,83 @@ export function toMeterView(assessment: NutrientAssessment): GoalMeterView {
   };
 }
 
-/** How many nutrient rows the day screen shows. */
-export const DAY_METER_LIMIT = 4;
+/**
+ * The three macronutrients the day screen shows, in this order.
+ *
+ * Carbohydrates, protein, fat — and no micronutrient. All three come from the
+ * frozen `meal_item` snapshot, so they carry a number the moment anything is
+ * logged. The previous list led with `calcium` and `epaDha`, which exist only
+ * in `food_catalog` and are reachable only through `food.bls_catalog_id`: two of
+ * four bars were structurally blank for every self-made food and every Open
+ * Food Facts product.
+ *
+ * NOT the same thing as `DAY_PRIORITY` in `services/nutrition/loader.ts`. That
+ * one is the mascot's focus ranking, where a calcium gap is exactly what should
+ * rank first. This one is what the meters print.
+ */
+export const DAY_MACRO_KEYS: readonly NutrientKey[] = [
+  'carbs',
+  'protein',
+  'fat',
+];
 
 /**
  * Which nutrients the day screen shows.
  *
- * A fixed priority list, plus AT MOST ONE exceeded limit, which pushes the last
- * entry out rather than being added to it. The row count therefore stays the
- * same no matter how many targets exist — the day screen already carries eight
- * widgets and this one has to stay a footnote inside the summary card, not
- * become a ninth.
+ * A fixed list, plus AT MOST ONE exceeded limit APPENDED to it. Appended and
+ * not swapped in: the three macros were asked for by name, and dropping fat
+ * because the salt limit was passed would answer a different question than the
+ * one the row is there to answer.
  *
- * An exceeded limit earns its place because it is the only state here that is
- * both actionable and provable on a thin day.
+ * An exceeded limit earns the fourth row because it is the only state here that
+ * is both actionable and provable on a thin day — over a limit is a fact even
+ * when half the amounts are guesses.
  */
 export function selectDayNutrients(
   nutrients: readonly NutrientAssessment[],
-  priority: readonly NutrientKey[],
-  limit = DAY_METER_LIMIT
+  keys: readonly NutrientKey[] = DAY_MACRO_KEYS
 ): NutrientAssessment[] {
   const byKey = new Map(nutrients.map((entry) => [entry.key, entry]));
   const chosen: NutrientAssessment[] = [];
 
-  for (const key of priority) {
+  for (const key of keys) {
     const entry = byKey.get(key);
     if (entry) chosen.push(entry);
-    if (chosen.length === limit) break;
   }
 
   const exceeded = nutrients.find(
     (entry) => entry.status === 'exceeded' && !chosen.includes(entry)
   );
-  if (exceeded) {
-    if (chosen.length === limit) chosen.pop();
-    chosen.push(exceeded);
+  if (exceeded) chosen.push(exceeded);
+
+  return chosen;
+}
+
+/**
+ * Everything the day screen did NOT show, grouped, for the detail list.
+ *
+ * The complement of `selectDayNutrients`, computed from the same `shown` array
+ * rather than from `DAY_MACRO_KEYS`, so an exceeded limit promoted to the day
+ * card is not then repeated further down.
+ */
+export function groupRemainingNutrients(
+  nutrients: readonly NutrientAssessment[],
+  shown: readonly NutrientAssessment[]
+): { group: NutrientGroup; entries: NutrientAssessment[] }[] {
+  const skip = new Set(shown.map((entry) => entry.key));
+  const grouped = new Map<NutrientGroup, NutrientAssessment[]>();
+
+  // `nutrients` arrives in `targetDisplayOrder` already (see `nutritionDay`),
+  // so insertion order is the display order and nothing re-sorts here.
+  for (const entry of nutrients) {
+    if (skip.has(entry.key)) continue;
+    const group = NUTRIENT_META[entry.key].group;
+    const list = grouped.get(group);
+    if (list) list.push(entry);
+    else grouped.set(group, [entry]);
   }
 
-  return chosen.slice(0, limit);
+  return [...grouped.entries()].map(([group, entries]) => ({ group, entries }));
 }
 
 /** The PAL chips, number and plain words. */

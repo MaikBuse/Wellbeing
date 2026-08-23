@@ -9,6 +9,8 @@ import {
   type RangePreset,
 } from '@/components/analysis/range-filter';
 import { CoverageCard } from '@/components/nutrition/coverage-card';
+import { CoverageNote } from '@/components/nutrition/coverage-note';
+import { DayDetail } from '@/components/nutrition/day-detail';
 import { GoalScoreboard } from '@/components/nutrition/goal-scoreboard';
 import { PRESET_DAYS, parseRangePreset } from '@/lib/range';
 import { loadNutrition } from '@/services/nutrition/loader';
@@ -79,6 +81,31 @@ export default async function NutritionPage({
             measuredGrams={blsGrams}
             statedShare={totalGrams <= 0 ? 0 : statedGrams / totalGrams}
           />
+
+          {/*
+           * Today, in full. Inside the range filter but independent of it: the
+           * range moves `from`, never `to`, so `today_` is today at every
+           * preset. This is where "Alle Nährstoffe ansehen" on the day screen
+           * lands, hence the id and the scroll offset for the sticky header.
+           */}
+          {data.today_ ? (
+            <Card id="heute" className="scroll-mt-16">
+              <CardHeader>
+                <CardTitle>Heute im Detail</CardTitle>
+                <CardMeta>
+                  Alles außer Kohlenhydraten, Eiweiß und Fett — die drei stehen
+                  auf der Heute-Seite.
+                </CardMeta>
+              </CardHeader>
+              <div className="mt-3 border-t border-line-soft pt-3">
+                <DayDetail day={data.today_} />
+              </div>
+              <CoverageNote
+                className="mt-3"
+                share={data.raw[data.raw.length - 1]?.blsGramsShare ?? 0}
+              />
+            </Card>
+          ) : null}
 
           <Card>
             <CardHeader>

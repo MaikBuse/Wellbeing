@@ -74,6 +74,25 @@ export type NutrientAssessment = {
   attainment: number | null;
   /** Counts towards the day score. */
   scored: boolean;
+  /**
+   * A number exists that may be printed, even without a verdict.
+   *
+   * `status: 'unknown'` covers four different situations and only ONE of them
+   * is "nothing was measured": a nutrient that is never judged (iron, energy),
+   * a day whose amounts were not stated, a day with one main meal, and a day
+   * with no measurement at all. The first three have a defensible figure, and
+   * dropping this flag is what made the day screen print "zu wenig Messwerte"
+   * under four bars while the kcal line above them filled normally.
+   */
+  showValue: boolean;
+  /**
+   * Whether this nutrient is judged at all (`TargetDefinition.showVerdict`).
+   *
+   * Carried rather than looked up again so the presentation layer can tell
+   * "wird nicht bewertet" from "noch nicht bewertbar" without importing the
+   * target catalogue.
+   */
+  judged: boolean;
 };
 
 export type DayUnscorableReason =

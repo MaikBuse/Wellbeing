@@ -304,9 +304,19 @@ export async function DayView({ logDate }: { logDate: LogDate }) {
           nutrition?.today_ && nutrition.blocked === null ? (
             <DayGoals
               day={nutrition.today_}
-              priority={DAY_PRIORITY}
+              // Three shares off the same row. `DayGoals` needs all of them
+              // because `NutritionDay.reason` folds "no second main meal" and
+              // "no amounts stated" into one value, and the sentence for those
+              // two is not the same sentence.
               coverageShare={
                 nutrition.raw[nutrition.raw.length - 1]?.blsGramsShare ?? 0
+              }
+              portionEvidenceShare={
+                nutrition.raw[nutrition.raw.length - 1]?.portionEvidenceShare ??
+                0
+              }
+              mainSlots={
+                nutrition.raw[nutrition.raw.length - 1]?.mainSlots ?? 0
               }
             />
           ) : null
