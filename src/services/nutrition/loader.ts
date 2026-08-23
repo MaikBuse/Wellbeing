@@ -74,10 +74,10 @@ export type NutritionData = {
   today: LogDate;
   from: LogDate;
   to: LogDate;
-  /** Null until the questionnaire is filled in and acknowledged. */
+  /** Null until the questionnaire has been started. */
   targets: Map<NutrientKey, TargetValue> | null;
   /** Why there are no targets, for the empty state. */
-  blocked: 'kein_profil' | 'nicht_bestaetigt' | null;
+  blocked: 'kein_profil' | null;
   days: NutritionDay[];
   raw: DayNutrients[];
   today_: NutritionDay | null;
@@ -135,11 +135,9 @@ export async function loadNutrition(
   ]);
 
   const calendar = eachLogDate(from, to);
-  const acknowledged =
-    settings.nutritionAckVersion !== null && settings.nutritionAckAt !== null;
 
   const blocked: NutritionData['blocked'] =
-    profiles.length === 0 ? 'kein_profil' : acknowledged ? null : 'nicht_bestaetigt';
+    profiles.length === 0 ? 'kein_profil' : null;
 
   const supplements = supplementContributions(
     intakes,
@@ -265,10 +263,8 @@ export async function loadTargets(
       ),
     ]);
 
-  const acknowledged =
-    settings.nutritionAckVersion !== null && settings.nutritionAckAt !== null;
   const blocked: NutritionData['blocked'] =
-    profiles.length === 0 ? 'kein_profil' : acknowledged ? null : 'nicht_bestaetigt';
+    profiles.length === 0 ? 'kein_profil' : null;
 
   const weightByDay = weightSeriesForCalendar([today], weights);
   const weightFromDailyLog = weightByDay.get(today) ?? null;

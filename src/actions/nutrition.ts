@@ -8,7 +8,6 @@ import {
   medications,
   nutritionTargetOverrides,
   userNutritionProfiles,
-  userSettings,
 } from '@/db/schema';
 import { NUTRIENT_META, type NutrientKey } from '@/lib/nutrients';
 import { revalidateNutritionGoals } from '@/lib/revalidate';
@@ -16,13 +15,11 @@ import { todayLogDate } from '@/lib/time';
 import {
   clearTargetOverrideSchema,
   medicationNutrientSchema,
-  nutritionAckSchema,
   nutritionProfileFieldSchema,
   removeMedicationNutrientSchema,
   targetOverrideSchema,
   type NutritionProfileFieldInput,
 } from '@/lib/validation/nutritionProfile';
-import { NUTRITION_DISCLAIMER_VERSION } from '@/lib/nutrition-goals';
 import { NUTRIENT_TARGETS } from '@/services/nutrition/targets/catalog';
 import type { ActionResult } from './meals';
 
@@ -116,36 +113,6 @@ function previousDay(logDate: string): string {
   const date = new Date(`${logDate}T00:00:00Z`);
   date.setUTCDate(date.getUTCDate() - 1);
   return date.toISOString().slice(0, 10);
-}
-
-/**
- * Acknowledge the framing, which is what switches the feature on.
- *
- * There is no separate enable flag: a state where the targets show without the
- * sentence around them should not be reachable.
- */
-export async function setNutritionAcknowledged(input: {
-  acknowledged: boolean;
-}): Promise<ActionResult> {
-  const user = await requireUserForAction();
-
-  const parsed = nutritionAckSchema.safeParse(input);
-  if (!parsed.success) return invalid(parsed.error.issues[0]?.message);
-
-  const value = parsed.data.acknowledged
-    ? { nutritionAckVersion: NUTRITION_DISCLAIMER_VERSION, nutritionAckAt: new Date() }
-    : { nutritionAckVersion: null, nutritionAckAt: null };
-
-  await db
-    .insert(userSettings)
-    .values({ userId: user.id, ...value })
-    .onConflictDoUpdate({
-      target: userSettings.userId,
-      set: { ...value, updatedAt: new Date() },
-    });
-
-  revalidateNutritionGoals();
-  return { ok: true };
 }
 
 /**

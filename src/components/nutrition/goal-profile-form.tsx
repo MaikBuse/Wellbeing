@@ -2,7 +2,6 @@
 
 import { useState, useTransition } from 'react';
 import { Check } from 'lucide-react';
-import { toast } from 'sonner';
 import { Card, CardHeader, CardMeta, CardTitle } from '@/components/ui/card';
 import { Chip, ChipRow } from '@/components/ui/chip';
 import { Field, Input } from '@/components/ui/field';
@@ -14,16 +13,16 @@ import {
   DIET_CHOICES,
   GOAL_CHOICES,
   MENOPAUSE_CHOICES,
-  NUTRITION_DISCLAIMER_DE,
   PAL_CHOICES,
   SEX_CHOICES,
 } from '@/lib/nutrition-goals';
-import { formatGermanNumber } from '@/lib/nutrition';
+import { formatGermanNumber, parseGermanNumber } from '@/lib/nutrition';
+import { saveNutritionProfileField } from '@/actions/nutrition';
 import {
-  saveNutritionProfileField,
-  setNutritionAcknowledged,
-} from '@/actions/nutrition';
-import type { NutritionProfileFieldInput } from '@/lib/validation/nutritionProfile';
+  PROFILE_HINT_DE,
+  type NutritionProfileFieldInput,
+  type NutritionProfileNumberField,
+} from '@/lib/validation/nutritionProfile';
 
 /**
  * The questionnaire.
@@ -43,6 +42,11 @@ import type { NutritionProfileFieldInput } from '@/lib/validation/nutritionProfi
  * these questions depend on one another — menopause only appears for a female
  * reference, the renal cap only with a renal diagnosis. Collapsing them would
  * hide the fact that one answer created another question.
+ *
+ * Every number leaves here as the STRING the user typed. The schema parses it
+ * with `germanNumber`, so "72,5" survives; sending `Number(field.value)` made
+ * every weight fail its type check and answered with zod's English "Invalid
+ * input" — about a perfectly ordinary weight.
  */
 
 export type ProfileFormValues = {
@@ -60,66 +64,159 @@ export type ProfileFormValues = {
   referenceWeightKg: number | null;
 };
 
-/** Answers the ring counts. The rest have a usable default. */
-const REQUIRED: (keyof ProfileFormValues)[] = [
-  'referenceSex',
-  'birthYear',
-  'heightCm',
-  'activityLevel',
-  'goal',
-  'dietForm',
-];
+/** Everything that is not a free-typed number: chips, switches, enums. */
+type ChoiceFieldInput = Exclude<
+  NutritionProfileFieldInput,
+  { field: NutritionProfileNumberField }
+>;
+
+/**
+ * The answers a target actually depends on.
+ *
+ * Not the same as "fields on this form": `activityLevel`, `goal` and `dietForm`
+ * have defaults and are therefore always answered. Counting them made the ring
+ * read "6 von 6" while nothing at all was being computed.
+ */
+const REQUIRED = ['referenceSex', 'birthYear', 'heightCm', 'weight'] as const;
+type RequiredAnswer = (typeof REQUIRED)[number];
+
+const MISSING_TEXT: Record<RequiredAnswer, string> = {
+  referenceSex:
+    'Referenzwerte nach — ohne sie bleiben die Vitamin-, Eisen- und Zinkziele leer.',
+  birthYear: 'Geburtsjahr — ohne es lässt sich der Energiebedarf nicht schätzen.',
+  heightCm: 'Körpergröße — ohne sie lässt sich der Energiebedarf nicht schätzen.',
+  weight: 'Gewicht — ohne es gibt es kein Energie- und kein Eiweißziel.',
+};
+
+/** Plain digits: `formatGermanNumber` would group 1985 into "1.985". */
+function integerText(value: number | null): string {
+  return value === null ? '' : String(value);
+}
 
 export function GoalProfileForm({
   initial,
   /** Resolved on the server — a client clock would ignore the day boundary. */
   currentYear,
   latestWeight,
-  acknowledged,
+  weightFromLog,
   steroidDetected,
 }: {
   initial: ProfileFormValues;
   currentYear: number;
   latestWeight: { kg: number; onDate: string } | null;
-  acknowledged: boolean;
+  /**
+   * The 28-day median from the daily check, exactly as the derivation reads it
+   * — not the latest entry. Showing the number the targets are built from is
+   * the whole point of printing it here.
+   */
+  weightFromLog: number | null;
   steroidDetected: boolean;
 }) {
   const [values, setValues] = useState(initial);
-  const [ack, setAck] = useState(acknowledged);
+  const [text, setText] = useState({
+    birthYear: integerText(initial.birthYear),
+    heightCm: integerText(initial.heightCm),
+    referenceWeightKg: formatGermanNumber(initial.referenceWeightKg, 1),
+    proteinMaxGPerKg: formatGermanNumber(initial.proteinMaxGPerKg, 2),
+  });
+  const [errors, setErrors] = useState<
+    Partial<Record<NutritionProfileNumberField, string>>
+  >({});
   const [saved, setSaved] = useState(false);
   const [pending, startTransition] = useTransition();
 
-  const answered = REQUIRED.filter((key) => values[key] !== null).length;
+  /*
+   * The weight the derivation will use, recomputed here rather than taken from
+   * the server: switching the source is a client-side change, and a stale
+   * number under the field would be worse than none.
+   */
+  const weightKg =
+    values.weightSource === 'manual'
+      ? values.referenceWeightKg
+      : (weightFromLog ?? values.referenceWeightKg);
 
-  function save<K extends keyof ProfileFormValues>(
-    field: K,
-    value: ProfileFormValues[K]
-  ) {
-    setValues((current) => ({ ...current, [field]: value }));
+  const missing = REQUIRED.filter((key) =>
+    key === 'weight' ? weightKg === null : values[key] === null
+  );
+
+  function flashSaved() {
+    setSaved(true);
+    setTimeout(() => setSaved(false), 1200);
+  }
+
+  function save(input: ChoiceFieldInput) {
+    setValues((current) => ({ ...current, [input.field]: input.value }));
     startTransition(async () => {
-      const result = await saveNutritionProfileField({
-        field,
-        value,
-      } as NutritionProfileFieldInput);
+      const result = await saveNutritionProfileField(input);
+      if (result.ok) flashSaved();
+    });
+  }
+
+  /**
+   * Build the discriminated-union payload with the field narrowed.
+   *
+   * Four lines instead of an `as NutritionProfileFieldInput` cast — and that
+   * cast is exactly what let a `number` reach a `string` schema unnoticed.
+   */
+  function numberInput(
+    field: NutritionProfileNumberField,
+    value: string
+  ): NutritionProfileFieldInput {
+    switch (field) {
+      case 'birthYear':
+        return { field, value };
+      case 'heightCm':
+        return { field, value };
+      case 'proteinMaxGPerKg':
+        return { field, value };
+      case 'referenceWeightKg':
+        return { field, value };
+    }
+  }
+
+  function saveNumber(field: NutritionProfileNumberField, raw: string) {
+    const trimmed = raw.trim();
+    startTransition(async () => {
+      const result = await saveNutritionProfileField(numberInput(field, trimmed));
       if (result.ok) {
-        setSaved(true);
-        setTimeout(() => setSaved(false), 1200);
+        setValues((current) => ({
+          ...current,
+          [field]: trimmed === '' ? null : parseGermanNumber(trimmed),
+        }));
+        setErrors((current) => {
+          if (current[field] === undefined) return current;
+          const next = { ...current };
+          delete next[field];
+          return next;
+        });
+        flashSaved();
       } else {
-        toast.error(result.error);
+        // Back to the last value the server accepted: leaving the rejected
+        // text in place next to an error reads as if it had been stored.
+        setErrors((current) => ({ ...current, [field]: result.error }));
+        setText((current) => ({
+          ...current,
+          [field]:
+            field === 'birthYear' || field === 'heightCm'
+              ? integerText(values[field])
+              : formatGermanNumber(
+                  values[field],
+                  field === 'proteinMaxGPerKg' ? 2 : 1
+                ),
+        }));
       }
     });
   }
 
-  function toggleAck() {
-    const next = !ack;
-    setAck(next);
-    startTransition(async () => {
-      const result = await setNutritionAcknowledged({ acknowledged: next });
-      if (!result.ok) {
-        setAck(!next);
-        toast.error(result.error);
-      }
-    });
+  function numberField(field: NutritionProfileNumberField) {
+    return {
+      value: text[field],
+      onChange: (event: React.ChangeEvent<HTMLInputElement>) =>
+        setText((current) => ({ ...current, [field]: event.target.value })),
+      onBlur: (event: React.FocusEvent<HTMLInputElement>) =>
+        saveNumber(field, event.target.value),
+      'aria-invalid': errors[field] !== undefined,
+    };
   }
 
   return (
@@ -137,17 +234,35 @@ export function GoalProfileForm({
         >
           <CardTitle>Angaben</CardTitle>
           <CardMeta>
-            {answered} von {REQUIRED.length} Pflichtangaben erfasst. Jede
-            Antwort wird sofort gespeichert.
+            {REQUIRED.length - missing.length} von {REQUIRED.length} Angaben
+            erfasst, aus denen gerechnet wird. Jede Antwort wird sofort
+            gespeichert.
           </CardMeta>
         </CardHeader>
         <div className="mt-3 flex justify-center">
           <ProgressRing
-            value={answered}
+            value={REQUIRED.length - missing.length}
             max={REQUIRED.length}
             label="Angaben"
           />
         </div>
+        {missing.length > 0 ? (
+          <div className="mt-3">
+            <p className="text-sm font-medium text-fg">Es fehlt noch:</p>
+            <ul className="mt-1 space-y-1">
+              {missing.map((key) => (
+                <li key={key} className="text-xs text-muted">
+                  {MISSING_TEXT[key]}
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : (
+          <p className="mt-3 text-xs text-muted">
+            Alles da. Die Zielwerte stehen unter „Nährstoff-Ziele“ und in der
+            Tagesansicht.
+          </p>
+        )}
       </Card>
 
       <Card>
@@ -163,7 +278,9 @@ export function GoalProfileForm({
                 <Chip
                   key={choice.value}
                   selected={values.referenceSex === choice.value}
-                  onClick={() => save('referenceSex', choice.value)}
+                  onClick={() =>
+                    save({ field: 'referenceSex', value: choice.value })
+                  }
                 >
                   {choice.labelDe}
                 </Chip>
@@ -171,49 +288,50 @@ export function GoalProfileForm({
             </ChipRow>
           </Field>
 
-          <Field label="Geburtsjahr" htmlFor="birth-year">
+          <Field
+            label="Geburtsjahr"
+            htmlFor="birth-year"
+            hint={PROFILE_HINT_DE.birthYear}
+            error={errors.birthYear ?? null}
+          >
             <Input
               id="birth-year"
               type="number"
               inputMode="numeric"
               min={1900}
               max={currentYear}
-              defaultValue={values.birthYear ?? ''}
-              onBlur={(event) =>
-                save(
-                  'birthYear',
-                  event.target.value === '' ? null : Number(event.target.value)
-                )
-              }
+              {...numberField('birthYear')}
             />
           </Field>
 
-          <Field label="Körpergröße in cm" htmlFor="height-cm">
+          <Field
+            label="Körpergröße in cm"
+            htmlFor="height-cm"
+            hint={PROFILE_HINT_DE.heightCm}
+            error={errors.heightCm ?? null}
+          >
             <Input
               id="height-cm"
               type="number"
               inputMode="numeric"
               min={100}
               max={250}
-              defaultValue={values.heightCm ?? ''}
-              onBlur={(event) =>
-                save(
-                  'heightCm',
-                  event.target.value === '' ? null : Number(event.target.value)
-                )
-              }
+              {...numberField('heightCm')}
             />
           </Field>
 
           <Field
             label="Gewicht"
             hint="Das Eiweiß- und Energieziel hängen daran. Aus dem Tagescheck wird der Mittelwert der letzten vier Wochen genommen, damit das Ziel nicht mit dem Tagesgewicht schwankt."
+            error={errors.referenceWeightKg ?? null}
           >
             <ChipRow>
               <Chip
                 selected={values.weightSource === 'daily_log'}
                 disabled={latestWeight === null}
-                onClick={() => save('weightSource', 'daily_log')}
+                onClick={() =>
+                  save({ field: 'weightSource', value: 'daily_log' })
+                }
               >
                 {latestWeight
                   ? `Aus dem Tagescheck (${formatGermanNumber(latestWeight.kg, 1)} kg)`
@@ -221,35 +339,26 @@ export function GoalProfileForm({
               </Chip>
               <Chip
                 selected={values.weightSource === 'manual'}
-                onClick={() => save('weightSource', 'manual')}
+                onClick={() => save({ field: 'weightSource', value: 'manual' })}
               >
                 Selbst angeben
               </Chip>
             </ChipRow>
-            {latestWeight === null ? (
-              <p className="text-xs text-muted">
-                Im Tagescheck ist noch kein Gewicht erfasst.
-              </p>
-            ) : null}
             {values.weightSource === 'manual' ? (
               <Input
                 inputMode="decimal"
                 aria-label="Gewicht in Kilogramm"
-                defaultValue={
-                  values.referenceWeightKg === null
-                    ? ''
-                    : formatGermanNumber(values.referenceWeightKg, 1)
-                }
-                onBlur={(event) =>
-                  save(
-                    'referenceWeightKg',
-                    event.target.value.trim() === ''
-                      ? null
-                      : Number(event.target.value.replace(',', '.'))
-                  )
-                }
+                placeholder="72,5"
+                {...numberField('referenceWeightKg')}
               />
             ) : null}
+            <p className="text-xs text-muted">
+              {weightKg !== null
+                ? `Gerechnet wird mit ${formatGermanNumber(weightKg, 1)} kg.`
+                : values.weightSource === 'manual'
+                  ? `Noch kein Gewicht eingetragen. ${PROFILE_HINT_DE.referenceWeightKg}`
+                  : 'Im Tagescheck ist noch kein Gewicht erfasst. Bis dahin bleiben das Energie- und das Eiweißziel leer — oder gib es hier selbst an.'}
+            </p>
           </Field>
         </div>
       </Card>
@@ -259,23 +368,24 @@ export function GoalProfileForm({
 
         <div className="mt-3 space-y-4">
           <Field label="Wie viel bewegst du dich an einem üblichen Tag?">
-            <ChipRow>
+            {/*
+             * A list, not a row of pills. The labels are half sentences, and a
+             * pill radius on a wrapped two-line chip cut into the words.
+             */}
+            <div className="grid gap-2">
               {PAL_CHOICES.map((choice) => (
-                <Chip
+                <OptionRow
                   key={choice.value}
                   selected={values.activityLevel === choice.value}
-                  onClick={() => save('activityLevel', choice.value)}
-                  className="h-auto min-h-11 flex-1 basis-24 flex-col items-start py-1.5"
+                  lead={choice.number}
+                  onClick={() =>
+                    save({ field: 'activityLevel', value: choice.value })
+                  }
                 >
-                  <span className="num text-sm font-semibold">
-                    {choice.number}
-                  </span>
-                  <span className="text-left text-xs font-normal opacity-90">
-                    {choice.labelDe}
-                  </span>
-                </Chip>
+                  {choice.labelDe}
+                </OptionRow>
               ))}
-            </ChipRow>
+            </div>
           </Field>
 
           <Field label="Gewichtsziel">
@@ -284,7 +394,7 @@ export function GoalProfileForm({
                 <Chip
                   key={choice.value}
                   selected={values.goal === choice.value}
-                  onClick={() => save('goal', choice.value)}
+                  onClick={() => save({ field: 'goal', value: choice.value })}
                 >
                   {choice.labelDe}
                 </Chip>
@@ -305,7 +415,7 @@ export function GoalProfileForm({
               <Chip
                 key={choice.value}
                 selected={values.dietForm === choice.value}
-                onClick={() => save('dietForm', choice.value)}
+                onClick={() => save({ field: 'dietForm', value: choice.value })}
               >
                 {choice.labelDe}
               </Chip>
@@ -345,7 +455,9 @@ export function GoalProfileForm({
               </span>
               <Switch
                 checked={values.hasSarcopenia}
-                onCheckedChange={(next) => save('hasSarcopenia', next)}
+                onCheckedChange={(next) =>
+                  save({ field: 'hasSarcopenia', value: next })
+                }
                 disabled={pending}
                 aria-label="Sarkopenie oder ungewollter Gewichtsverlust"
               />
@@ -362,7 +474,9 @@ export function GoalProfileForm({
                   <Chip
                     key={choice.value}
                     selected={values.menopauseStage === choice.value}
-                    onClick={() => save('menopauseStage', choice.value)}
+                    onClick={() =>
+                      save({ field: 'menopauseStage', value: choice.value })
+                    }
                   >
                     {choice.labelDe}
                   </Chip>
@@ -378,7 +492,9 @@ export function GoalProfileForm({
               </span>
               <Switch
                 checked={values.renalImpairment}
-                onCheckedChange={(next) => save('renalImpairment', next)}
+                onCheckedChange={(next) =>
+                  save({ field: 'renalImpairment', value: next })
+                }
                 disabled={pending}
                 aria-label="Nierenerkrankung"
               />
@@ -389,24 +505,14 @@ export function GoalProfileForm({
                 <Field
                   label="Ärztlich gesetzte Eiweiß-Obergrenze in g je kg"
                   htmlFor="protein-cap"
-                  hint="Nur eintragen, wenn dir eine Zahl genannt wurde."
+                  hint={`Nur eintragen, wenn dir eine Zahl genannt wurde. ${PROFILE_HINT_DE.proteinMaxGPerKg}`}
+                  error={errors.proteinMaxGPerKg ?? null}
                 >
                   <Input
                     id="protein-cap"
                     inputMode="decimal"
-                    defaultValue={
-                      values.proteinMaxGPerKg === null
-                        ? ''
-                        : formatGermanNumber(values.proteinMaxGPerKg, 2)
-                    }
-                    onBlur={(event) =>
-                      save(
-                        'proteinMaxGPerKg',
-                        event.target.value.trim() === ''
-                          ? null
-                          : Number(event.target.value.replace(',', '.'))
-                      )
-                    }
+                    placeholder="0,80"
+                    {...numberField('proteinMaxGPerKg')}
                   />
                 </Field>
               </>
@@ -414,33 +520,40 @@ export function GoalProfileForm({
           </div>
         </div>
       </Card>
-
-      <Card>
-        <CardTitle>Einordnung</CardTitle>
-        <CardMeta className="mt-1">{NUTRITION_DISCLAIMER_DE}</CardMeta>
-
-        {/*
-         * A pressed button, not a switch. A switch reads as a preference, and
-         * this is the condition under which the numbers may be shown at all —
-         * the same shape the flare button on the daily check uses.
-         */}
-        <button
-          type="button"
-          aria-pressed={ack}
-          disabled={pending}
-          onClick={toggleAck}
-          className={cn(
-            'mt-3 flex min-h-11 w-full items-center justify-between rounded-control border px-3 text-sm font-medium',
-            'transition-[background-color,border-color] duration-120 ease-out-soft',
-            ack
-              ? 'border-primary-strong bg-primary text-primary-fg'
-              : 'border-line-strong bg-card text-fg hover:border-primary-strong'
-          )}
-        >
-          <span>Verstanden — Ziele anzeigen</span>
-          <span className="text-xs">{ack ? 'ja' : 'nein'}</span>
-        </button>
-      </Card>
     </div>
+  );
+}
+
+/**
+ * One answer on its own line, with a lead-in number.
+ *
+ * Square, not a pill: these labels are half sentences, and a wrapped pill puts
+ * its radius through the first and last word. Same colours as `Chip` so the
+ * selected state reads identically across the form.
+ */
+function OptionRow({
+  selected,
+  lead,
+  children,
+  ...props
+}: React.ComponentProps<'button'> & { selected: boolean; lead: string }) {
+  return (
+    <button
+      type="button"
+      aria-pressed={selected}
+      className={cn(
+        'flex min-h-11 w-full items-center gap-3 rounded-control border px-3 py-2 text-left',
+        'transition-[background-color,border-color,color] duration-120 ease-out-soft',
+        selected
+          ? 'border-primary-strong bg-primary text-primary-fg'
+          : 'border-line-strong bg-card text-fg hover:border-primary-strong hover:bg-primary-tint'
+      )}
+      {...props}
+    >
+      <span className="num w-8 shrink-0 text-sm font-semibold tabular-nums">
+        {lead}
+      </span>
+      <span className="text-sm font-medium">{children}</span>
+    </button>
   );
 }

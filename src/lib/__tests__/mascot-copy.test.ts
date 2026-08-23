@@ -27,7 +27,6 @@ const MOODS: MascotMood[] = ['happy', 'concerned', 'curious', 'neutral'];
 const SCOPES: MascotScope[] = ['day', 'meal', 'close', 'week'];
 const QUIETS: MascotQuiet[] = [
   'kein_profil',
-  'nicht_bestaetigt',
   'schub',
   'zu_wenig_erfasst',
   'zu_wenig_bekannt',

@@ -17,6 +17,11 @@ import {
  * editable — it belongs to the catalogue, so an override can move the number
  * but cannot turn a minimum into a limit.
  *
+ * A range target gets two fields, and it needs them: writing a single value
+ * into `min` nulls `bandMax` in `deriveTargets`, and `formatTarget` then falls
+ * through to "mindestens 65 g" for something the catalogue still calls a range.
+ * A doctor's protein ceiling was not enterable at all.
+ *
  * The derived value is printed inside the reset button rather than beside it,
  * so it is obvious where "back" leads.
  */
@@ -35,12 +40,16 @@ export function GoalRowEditor({
   unavailable: boolean;
 }) {
   const [value, setValue] = useState('');
+  const [upper, setUpper] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
   const meta = NUTRIENT_META[nutrientKey];
   const unit = UNIT_LABEL[meta.unit];
   const isLimit = direction === 'max';
+  const isRange = direction === 'range';
+  const incomplete =
+    value.trim() === '' || (isRange && upper.trim() === '');
 
   function save() {
     setError(null);
@@ -48,10 +57,11 @@ export function GoalRowEditor({
       const result = await setTargetOverride({
         nutrientKey,
         min: isLimit ? null : value,
-        max: isLimit ? value : null,
+        max: isLimit ? value : isRange ? upper : null,
       });
       if (result.ok) {
         setValue('');
+        setUpper('');
         toast.success('Zielwert gespeichert');
       } else {
         setError(result.error);
@@ -69,7 +79,7 @@ export function GoalRowEditor({
   return (
     <div className="space-y-2 border-t border-line-soft pt-2">
       <Field
-        label="Eigener Zielwert"
+        label={isRange ? 'Eigener Zielbereich' : 'Eigener Zielwert'}
         htmlFor={`override-${nutrientKey}`}
         error={error}
         hint={
@@ -84,14 +94,25 @@ export function GoalRowEditor({
             inputMode="decimal"
             value={value}
             onChange={(event) => setValue(event.target.value)}
-            placeholder={unit}
+            placeholder={isRange ? `von ${unit}` : unit}
+            aria-label={isRange ? `Unterer Wert in ${unit}` : undefined}
             aria-invalid={error !== null}
           />
+          {isRange ? (
+            <Input
+              inputMode="decimal"
+              value={upper}
+              onChange={(event) => setUpper(event.target.value)}
+              placeholder={`bis ${unit}`}
+              aria-label={`Oberer Wert in ${unit}`}
+              aria-invalid={error !== null}
+            />
+          ) : null}
           <Button
             type="button"
             variant="outline"
             size="sm"
-            disabled={pending || value.trim() === ''}
+            disabled={pending || incomplete}
             onClick={save}
           >
             Übernehmen

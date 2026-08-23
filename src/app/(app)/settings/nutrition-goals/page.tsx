@@ -6,7 +6,6 @@ import { PageHeader } from '@/components/ui/page-header';
 import { SectionLabel } from '@/components/ui/section-label';
 import { GoalRow } from '@/components/nutrition/goal-row';
 import { NUTRIENT_META, type NutrientGroup } from '@/lib/nutrients';
-import { NUTRITION_DISCLAIMER_DE } from '@/lib/nutrition-goals';
 import { formatGermanNumber } from '@/lib/nutrition';
 import { supplementCandidates } from '@/db/queries/nutrition';
 import { SupplementMapping } from '@/components/nutrition/supplement-mapping';
@@ -39,7 +38,7 @@ export default async function NutritionGoalsPage() {
     else grouped.set(group, [key]);
   }
 
-  const missing = missingAnswers(set.profile);
+  const missing = missingAnswers(set);
   const overridden = new Set(set.overriddenKeys);
 
   return (
@@ -106,9 +105,8 @@ export default async function NutritionGoalsPage() {
       </Card>
 
       <Card>
-        <CardTitle>Wozu diese Zahlen taugen</CardTitle>
-        <CardMeta className="mt-1">{NUTRITION_DISCLAIMER_DE}</CardMeta>
-        <CardMeta className="mt-2">
+        <CardTitle>Was hier fehlt</CardTitle>
+        <CardMeta className="mt-1">
           Selen fehlt in dieser Liste, weil der Bundeslebensmittelschlüssel es
           nicht führt. Ein Ziel, das sich aus den vorhandenen Daten nicht messen
           lässt, wird hier nicht angeboten.
@@ -118,15 +116,23 @@ export default async function NutritionGoalsPage() {
   );
 }
 
-/** The `missingLabels` shape from the completeness blocks, for a profile. */
+/**
+ * The `missingLabels` shape from the completeness blocks, for a profile.
+ *
+ * The weight belongs in here even though it is not a column of the
+ * questionnaire: without it there is no energy target and no protein target,
+ * which is half of what the day screen shows.
+ */
 function missingAnswers(
-  profile: Awaited<ReturnType<typeof loadTargets>>['profile']
+  set: Awaited<ReturnType<typeof loadTargets>>
 ): string[] {
-  if (!profile) return ['Geschlecht', 'Geburtsjahr', 'Größe'];
+  const profile = set.profile;
+  if (!profile) return ['Geschlecht', 'Geburtsjahr', 'Größe', 'Gewicht'];
   const missing: string[] = [];
   if (profile.referenceSex === null) missing.push('Referenzwerte nach');
   if (profile.birthYear === null) missing.push('Geburtsjahr');
   if (profile.heightCm === null) missing.push('Größe');
+  if (set.weightKg === null) missing.push('Gewicht');
   return missing;
 }
 
@@ -138,10 +144,10 @@ function statusLine(
     return 'Das Profil ist noch leer. Die Zielwerte entstehen daraus.';
   }
   if (missing.length > 0) {
-    return `Es fehlen noch: ${missing.join(', ')}.`;
-  }
-  if (set.blocked === 'nicht_bestaetigt') {
-    return 'Die Werte stehen bereit. Sie erscheinen in der App, sobald die Einordnung im Profil bestätigt ist.';
+    const consequence = missing.includes('Gewicht')
+      ? ' Ohne Gewicht gibt es kein Energie- und kein Eiweißziel.'
+      : '';
+    return `Es fehlen noch: ${missing.join(', ')}.${consequence}`;
   }
   const parts: string[] = [];
   if (set.weightKg !== null) {

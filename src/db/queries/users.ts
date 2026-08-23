@@ -11,15 +11,6 @@ export type UserSettings = {
   countTraceExposure: boolean;
   /** Whether the mascot appears. Independent of the target framing. */
   showMascot: boolean;
-  /**
-   * Which version of the nutrient-goal framing was acknowledged.
-   *
-   * Null means the targets stay hidden. This is the on/off switch for the
-   * feature: there is no state in which the numbers show without the sentence
-   * saying they are orientation values rather than a prescription.
-   */
-  nutritionAckVersion: number | null;
-  nutritionAckAt: Date | null;
 };
 
 /**
@@ -69,8 +60,6 @@ export async function getUserSettings(userId: string): Promise<UserSettings> {
       trackWeight: true,
       countTraceExposure: false,
       showMascot: true,
-      nutritionAckVersion: null,
-      nutritionAckAt: null,
     };
   }
   return {
@@ -80,7 +69,5 @@ export async function getUserSettings(userId: string): Promise<UserSettings> {
     trackWeight: row.trackWeight,
     countTraceExposure: row.countTraceExposure,
     showMascot: row.showMascot,
-    nutritionAckVersion: row.nutritionAckVersion,
-    nutritionAckAt: row.nutritionAckAt,
   };
 }

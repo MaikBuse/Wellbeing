@@ -23,13 +23,7 @@ export default async function SettingsPage() {
     openNutritionProfile(user.id),
   ]);
 
-  const goalsStatus =
-    profile === null
-      ? 'none'
-      : settings.nutritionAckVersion !== null &&
-          settings.nutritionAckAt !== null
-        ? 'active'
-        : 'unconfirmed';
+  const goalsStatus = profile === null ? 'none' : 'active';
 
   return (
     <main className="space-y-4 p-4">
@@ -78,9 +72,7 @@ export default async function SettingsPage() {
           <CardMeta>
             {goalsStatus === 'active'
               ? 'Aktiv. Die Tagesansicht zeigt, wie weit du an deinen Zielwerten bist.'
-              : goalsStatus === 'unconfirmed'
-                ? 'Fast fertig — es fehlt nur die Bestätigung der Einordnung.'
-                : 'Noch nicht eingerichtet. Ein kurzer Fragebogen leitet Zielwerte für Makro- und Mikronährstoffe ab.'}
+              : 'Noch nicht eingerichtet. Ein kurzer Fragebogen leitet Zielwerte für Makro- und Mikronährstoffe ab.'}
           </CardMeta>
         </CardHeader>
       </Card>

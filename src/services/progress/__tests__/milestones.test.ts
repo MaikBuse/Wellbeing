@@ -304,7 +304,7 @@ describe('meds_30', () => {
 
 
 describe('die Nährstoff-Meilensteine', () => {
-  it('are inapplicable until the questionnaire is filled in and acknowledged', () => {
+  it('are inapplicable until the questionnaire has been started', () => {
     const milestones = evaluate({ pattern: 'x' });
     expect(find(milestones, 'nutrition_ready').applicable).toBe(false);
     expect(find(milestones, 'nutrition_20').applicable).toBe(false);

@@ -52,25 +52,10 @@ export const userSettings = pgTable(
     /**
      * Whether the mascot appears at all.
      *
-     * A separate flag from `nutritionAckVersion` on purpose: that one gates the
-     * NUMBERS behind their framing, this one gates a cartoon. Someone can want
-     * the targets and not want a face commenting on them, and there is no other
-     * way to say so.
+     * Its own flag, because wanting the targets and wanting a face to comment
+     * on them are two different wishes, and there is no other way to say so.
      */
     showMascot: boolean('show_mascot').notNull().default(true),
-    /*
-     * Nutrient targets are hidden until the wording about them being
-     * orientation values rather than a prescription has been acknowledged.
-     * This IS the on/off switch for the feature — there is no second flag, so
-     * there is no state where targets show without the framing around them.
-     *
-     * The version is a code constant (NUTRITION_DISCLAIMER_VERSION). Raising it
-     * hides the feature until the new wording is acknowledged, which is why the
-     * acknowledgement is not on the versioned profile: copying it into every
-     * profile edit would silently re-date a consent.
-     */
-    nutritionAckVersion: smallint('nutrition_ack_version'),
-    nutritionAckAt: tsz('nutrition_ack_at'),
     updatedAt: updatedAt(),
   },
   (t) => [

@@ -60,9 +60,7 @@ export default async function NutritionProfilePage() {
             ? { kg: latest.weightKg, onDate: formatLogDateShort(latest.logDate) }
             : null
         }
-        acknowledged={
-          settings.nutritionAckVersion !== null && settings.nutritionAckAt !== null
-        }
+        weightFromLog={targets.weightFromDailyLog}
         steroidDetected={targets.steroidLongTerm}
       />
     </main>

@@ -38,7 +38,6 @@ export type MascotMood = 'happy' | 'concerned' | 'curious' | 'neutral';
  */
 export type MascotQuiet =
   | 'kein_profil'
-  | 'nicht_bestaetigt'
   | 'schub'
   | 'zu_wenig_erfasst'
   | 'zu_wenig_bekannt';
@@ -165,7 +164,7 @@ function byPriority(
 
 export function mascotMoodForDay(input: {
   day: NutritionDay | null;
-  blocked: 'kein_profil' | 'nicht_bestaetigt' | null;
+  blocked: 'kein_profil' | null;
   priority?: readonly NutrientKey[];
 }): MascotState {
   const { day, blocked } = input;

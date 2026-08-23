@@ -223,18 +223,5 @@ export const CONSEQUENCE: Record<string, string> = {
     'Calcium steigt von 1000 auf 1200 mg, Vitamin D von 20 auf 25 µg — so steht es in der Leitlinie zur kortisonbedingten Osteoporose.',
 };
 
-/**
- * The version of the framing text that has to be acknowledged.
- *
- * Raising it hides the feature until the new wording has been read — the point
- * of a version rather than a boolean. It lives here and not in the action
- * because a `'use server'` module may only export async functions; a constant
- * in there silently strips every export from the file.
- */
-export const NUTRITION_DISCLAIMER_VERSION = 1;
-
-export const NUTRITION_DISCLAIMER_DE =
-  'Die Zielwerte stammen aus Referenztabellen für Erwachsene, angepasst an deine Angaben. Sie sind keine Diagnose, keine Verordnung und kein Ersatz für eine Ernährungsberatung. Änderungen an Ernährung oder Präparaten bitte nur in Absprache mit deiner Ärztin.';
-
 export const COVERAGE_EXPLANATION_DE =
   'Mikronährstoffe stehen nur für Lebensmittel aus dem Bundeslebensmittelschlüssel zur Verfügung. Selbst angelegte Lebensmittel und Produkte aus Open Food Facts haben keine Messwerte für Calcium oder Vitamin D — diese Gramm zählen nicht als null, sondern als unbekannt. Sonst wäre jeder Wert systematisch zu niedrig, und zwar am stärksten an den Tagen mit Fertigprodukten.';

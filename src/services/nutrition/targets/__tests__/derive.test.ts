@@ -284,6 +284,46 @@ describe('Übersteuern', () => {
     expect(targets.has('sugar')).toBe(false);
   });
 
+  it('makes a weight-dependent target available again', () => {
+    // The whole point of an override on an unresolvable target: a value the
+    // user knows beats a formula that has nothing to work with.
+    const blind = deriveTargets(ctx({ weightKg: null }));
+    expect(blind.get('protein')!.unavailableReason).not.toBeNull();
+
+    const targets = deriveTargets(ctx({ weightKg: null }), [
+      {
+        nutrientKey: 'protein',
+        min: 90,
+        max: null,
+        unit: 'g',
+        disabled: false,
+        reason: null,
+      },
+    ]);
+    const protein = targets.get('protein')!;
+    expect(protein.min).toBe(90);
+    expect(protein.unavailableReason).toBeNull();
+  });
+
+  it('keeps both ends of a range', () => {
+    // A single value in `min` nulls `bandMax` and turns "Zielbereich 65–78 g"
+    // into "mindestens 65 g" — the editor therefore sends both.
+    const targets = deriveTargets(ctx(), [
+      {
+        nutrientKey: 'protein',
+        min: 70,
+        max: 90,
+        unit: 'g',
+        disabled: false,
+        reason: null,
+      },
+    ]);
+    const protein = targets.get('protein')!;
+    expect(protein.direction).toBe('range');
+    expect(protein.min).toBe(70);
+    expect(protein.max).toBe(90);
+  });
+
   it('ignores an override for a nutrient the catalogue does not target', () => {
     const targets = deriveTargets(ctx(), [
       {

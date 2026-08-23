@@ -42,11 +42,7 @@ export default async function NutritionPage({
         <PageHeader eyebrow="Ernährung" title="Nährstoffe" />
         <EmptyState
           title="Noch keine Zielwerte"
-          description={
-            data.blocked === 'kein_profil'
-              ? 'Ein kurzer Fragebogen in den Einstellungen leitet Zielwerte für Makro- und Mikronährstoffe ab.'
-              : 'Die Werte stehen bereit. Sie erscheinen, sobald die Einordnung im Profil bestätigt ist.'
-          }
+          description="Ein kurzer Fragebogen in den Einstellungen leitet Zielwerte für Makro- und Mikronährstoffe ab."
           action={
             <Button asChild size="sm">
               <Link href="/settings/nutrition-goals">Zu den Zielen</Link>

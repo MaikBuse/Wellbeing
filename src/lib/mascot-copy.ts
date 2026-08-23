@@ -55,7 +55,6 @@ export const MOOD_LABEL: Record<MascotMood, string> = {
 
 const QUIET_HEADLINE: Record<MascotQuiet, string> = {
   kein_profil: 'Für Nährstoffziele fehlt noch dein Profil.',
-  nicht_bestaetigt: 'Ein Schritt fehlt noch, dann rechne ich mit.',
   schub: 'Schubtag. Heute bewerte ich nichts.',
   zu_wenig_erfasst: 'Noch zu wenig erfasst, um etwas zu sagen.',
   zu_wenig_bekannt: 'Von den erfassten Mengen sind zu wenige Werte bekannt.',
@@ -63,7 +62,6 @@ const QUIET_HEADLINE: Record<MascotQuiet, string> = {
 
 const QUIET_DETAIL: Record<MascotQuiet, string | null> = {
   kein_profil: 'Ohne Profil gibt es keine Zielwerte, gegen die ich rechnen könnte.',
-  nicht_bestaetigt: null,
   schub: 'Ein Schubtag zählt weder als guter noch als schlechter Tag.',
   zu_wenig_erfasst:
     'Ein unvollständig erfasster Tag kann nur zu niedrig aussehen, nie zu hoch.',

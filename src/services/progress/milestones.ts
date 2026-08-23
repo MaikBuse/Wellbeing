@@ -83,7 +83,7 @@ export type MilestoneInput = {
  * first step towards a cycle.
  */
 export type NutritionMilestoneInput = {
-  /** True once the questionnaire is filled in and acknowledged. */
+  /** True once the questionnaire has been started. */
   active: boolean;
   /** Days with a defensible score, ascending. Flare days are not among them. */
   assessableDays: readonly LogDate[];

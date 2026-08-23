@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { NUTRIENT_KEYS } from '@/lib/nutrients';
-import { germanNumber, optionalInt, optionalText } from './common';
+import { germanNumber, optionalText } from './common';
 
 /**
  * The nutrient-goal questionnaire and the target overrides.
@@ -34,19 +34,90 @@ export const weightSource = z.enum(['daily_log', 'manual']);
 const CURRENT_YEAR_MAX = 2100;
 
 /**
+ * A number field of the questionnaire, as the form actually sends it: a raw
+ * string, empty for "no answer".
+ *
+ * Every message names the range AND an example. The generic zod default said
+ * "Invalid input" in English and left the reader to guess whether 115 was too
+ * large, the wrong unit, or the wrong separator.
+ *
+ * The bounds are the table CHECKs (`unp_*_sane`) restated. They are duplicated
+ * on purpose: the constraint is what makes a bad row impossible, this is what
+ * makes a bad row explainable.
+ */
+const rangedNumber = (
+  min: number,
+  max: number,
+  message: string,
+  { int = false }: { int?: boolean } = {}
+) =>
+  z
+    .string(message)
+    .nullable()
+    .transform((raw, ctx) => {
+      if (raw === null || raw.trim() === '') return null;
+
+      // `germanNumber` owns the comma and whitespace rule; only the verdict is
+      // ours. A union of ('' | number) would work too, but then `issues[0]` is
+      // zod's own union error — "Invalid input", in English, about a field it
+      // does not name. That is the message this whole helper exists to avoid.
+      const number = germanNumber.safeParse(raw);
+      const value = number.success ? number.data : null;
+
+      if (
+        value === null ||
+        value < min ||
+        value > max ||
+        (int && !Number.isInteger(value))
+      ) {
+        ctx.addIssue({ code: 'custom', message });
+        return z.NEVER;
+      }
+      return value;
+    });
+
+export const PROFILE_HINT_DE = {
+  birthYear: 'Vierstellig, zwischen 1900 und heute — zum Beispiel 1985.',
+  heightCm: 'In Zentimetern, zwischen 100 und 250 — zum Beispiel 178.',
+  referenceWeightKg:
+    'In Kilogramm, zwischen 30 und 250 — zum Beispiel 72,5.',
+  proteinMaxGPerKg:
+    'Gramm je Kilogramm Körpergewicht, zwischen 0,40 und 2,50 — zum Beispiel 0,80.',
+} as const;
+
+/**
  * One field of the questionnaire.
  *
  * A discriminated union rather than a partial object: it makes "save this one
  * answer" the only shape the action accepts, so a stray extra key cannot ride
  * along on an autosave.
+ *
+ * Every numeric field takes a STRING, not a number — German keypads produce
+ * "72,5" and `Number('72,5')` is NaN, so the comma has to survive as far as
+ * `germanNumber`. A form that sends `Number(input.value)` here does not fail
+ * its range check, it fails the type check, and the reader is told "Invalid
+ * input" about a perfectly ordinary weight.
  */
 export const nutritionProfileFieldSchema = z.discriminatedUnion('field', [
   z.object({ field: z.literal('referenceSex'), value: referenceSex.nullable() }),
   z.object({
     field: z.literal('birthYear'),
-    value: optionalInt(1900, CURRENT_YEAR_MAX),
+    value: rangedNumber(
+      1900,
+      CURRENT_YEAR_MAX,
+      `Bitte ein Geburtsjahr eingeben. ${PROFILE_HINT_DE.birthYear}`,
+      { int: true }
+    ),
   }),
-  z.object({ field: z.literal('heightCm'), value: optionalInt(100, 250) }),
+  z.object({
+    field: z.literal('heightCm'),
+    value: rangedNumber(
+      100,
+      250,
+      `Bitte die Körpergröße eingeben. ${PROFILE_HINT_DE.heightCm}`,
+      { int: true }
+    ),
+  }),
   z.object({ field: z.literal('activityLevel'), value: activityLevel }),
   z.object({ field: z.literal('goal'), value: weightGoal }),
   z.object({ field: z.literal('hasSarcopenia'), value: z.boolean() }),
@@ -58,32 +129,33 @@ export const nutritionProfileFieldSchema = z.discriminatedUnion('field', [
   z.object({ field: z.literal('renalImpairment'), value: z.boolean() }),
   z.object({
     field: z.literal('proteinMaxGPerKg'),
-    value: z
-      .union([
-        z.literal('').transform(() => null),
-        germanNumber.pipe(z.number().min(0.4).max(2.5)),
-      ])
-      .nullable(),
+    value: rangedNumber(
+      0.4,
+      2.5,
+      `Bitte die Obergrenze eingeben. ${PROFILE_HINT_DE.proteinMaxGPerKg}`
+    ),
   }),
   z.object({ field: z.literal('weightSource'), value: weightSource }),
   z.object({
     field: z.literal('referenceWeightKg'),
-    value: z
-      .union([
-        z.literal('').transform(() => null),
-        germanNumber.pipe(z.number().min(30).max(250)),
-      ])
-      .nullable(),
+    value: rangedNumber(
+      30,
+      250,
+      `Bitte ein Gewicht eingeben. ${PROFILE_HINT_DE.referenceWeightKg}`
+    ),
   }),
 ]);
+
+/** The field names the questionnaire sends as a raw string. */
+export type NutritionProfileNumberField =
+  | 'birthYear'
+  | 'heightCm'
+  | 'proteinMaxGPerKg'
+  | 'referenceWeightKg';
 
 export type NutritionProfileFieldInput = z.input<
   typeof nutritionProfileFieldSchema
 >;
-
-export const nutritionAckSchema = z.object({
-  acknowledged: z.boolean(),
-});
 
 export const nutrientKey = z.enum(
   NUTRIENT_KEYS as unknown as [string, ...string[]]
