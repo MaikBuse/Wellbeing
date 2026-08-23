@@ -15,7 +15,9 @@ import {
   mascotMoodForWeek,
 } from '../mascot';
 import {
-  MOOD_INPUT_VALUE,
+  MOOD_FACE,
+  MOOD_GESTURE,
+  NEGATIVE_FACES,
   NEGATIVE_MOODS,
 } from '@/components/mascot/rive-asset';
 import { NUTRITION_TEST_TARGETS, ON_TARGET } from './helpers';
@@ -340,10 +342,25 @@ describe('das Stimmungs-Mapping', () => {
     expect(NEGATIVE_MOODS).toEqual(['concerned']);
   });
 
-  it('maps every mood to a distinct input value', () => {
-    const values = MOODS.map((mood) => MOOD_INPUT_VALUE[mood]);
-    for (const value of values) expect(Number.isFinite(value)).toBe(true);
-    expect(new Set(values).size).toBe(MOODS.length);
+  it('gives every mood a face', () => {
+    for (const mood of MOODS) expect(MOOD_FACE[mood], mood).toBeTruthy();
+  });
+
+  it('sends exactly one mood to an unhappy face', () => {
+    const unhappy = MOODS.filter((mood) =>
+      NEGATIVE_FACES.includes(MOOD_FACE[mood])
+    );
+    expect(unhappy).toEqual(['concerned']);
+  });
+
+  /*
+   * `curious` and `neutral` wear the same face, so the gesture is what
+   * distinguishes waiting from asking. A flare day must stay still.
+   */
+  it('separates waiting from asking by gesture, not by face', () => {
+    expect(MOOD_FACE.curious).toBe(MOOD_FACE.neutral);
+    expect(MOOD_GESTURE.curious).toBeTruthy();
+    expect(MOOD_GESTURE.neutral).toBeUndefined();
   });
 
   /*

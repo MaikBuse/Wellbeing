@@ -1,5 +1,5 @@
 import Image from 'next/image';
-import { Cloud, CloudDrizzle, CloudSun, Cloudy } from 'lucide-react';
+import { Frown, Laugh, Meh, Smile } from 'lucide-react';
 import type { MascotMood } from '@/services/nutrition/mascot';
 import { POSTER_SRC } from './rive-asset';
 import { HAS_POSTERS } from './artwork';
@@ -22,11 +22,15 @@ import { HAS_POSTERS } from './artwork';
  * somebody has to remember to flip.
  */
 
+/*
+ * Faces rather than anything character-specific, so replacing the artwork does
+ * not leave a fallback that depicts the previous mascot.
+ */
 const GLYPH = {
-  happy: CloudSun,
-  curious: Cloud,
-  concerned: CloudDrizzle,
-  neutral: Cloudy,
+  happy: Laugh,
+  curious: Smile,
+  concerned: Frown,
+  neutral: Meh,
 } as const;
 
 /* Only 'concerned' leaves the calm tone, and it is the only mood that should. */

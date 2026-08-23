@@ -169,11 +169,28 @@ brauchen, keinen Rebuild — der richtige Tausch dafür, nie ein kaputtes Bild
 auszuliefern. Das Canvas liegt außerdem *über* dem Standbild, also bleibt bei
 einer nicht ladenden `.riv` das Standbild stehen.
 
-`ARTBOARD`, `STATE_MACHINE` und `MOOD_INPUT` in `rive-asset.ts` sind
-Platzhalter, bis jemand die Datei in einem Viewer öffnet. Ein falscher Name ist
-in der Rive-API ein stiller No-op, deshalb probiert `applyMood` und schluckt:
-die Verschlechterung ist „Default-Animation über dem Standbild", kein Fehler im
-Render.
+**Ein Asset, das Ausdrücke verspricht, muss sie nicht nach außen geben.** Die
+erste Wahl für dieses Feature war ein Wolken-Maskottchen, dessen Seite „State
+Machine & 6 Expressions" auszeichnete. Geladen im Browser liefert
+`stateMachineInputs('State Machine 1')` **undefined**, und alle sieben
+ViewModels haben null Eigenschaften — aus dem Code heraus ist die Datei ein
+Deko-Loop. Der einzige Weg, das zu erkennen, ist Laden und Fragen.
+
+Das gewählte Asset steuert über **Data Binding**, nicht über
+State-Machine-Inputs: ein gebundenes ViewModel mit dem Enum `FaceEmotion`
+(Neutral, Happy, Sad, Intense Sad, Angry, Intense Angry, Scared, Eating) und
+Triggern wie `anim_wave`. Deshalb braucht das Canvas `autoBind: true` — ohne das
+gibt es nichts zu setzen. Drei der acht Gesichter sind in Gebrauch; `Angry` und
+die beiden „Intense"-Stufen bleiben absichtlich unbenutzt, weil die App nicht
+wütend auf die Person wird und ein Tag über einer Salzgrenze kein Drama ist.
+
+Ein Eigenschaftsname, den es nicht gibt, liefert in der Rive-API `null` statt zu
+werfen. `applyMood` probiert deshalb und schluckt: die Verschlechterung ist
+„Idle-Animation über dem Standbild", kein Fehler im Render.
+
+Die Standbilder sind aus derselben Datei gerendert, mit Playwright und der
+Rive-Runtime im Browser — Chromium liegt für die E2E-Tests ohnehin da. Sie sind
+abgeleitete Werke und fallen unter dieselbe CC-BY-Nennung.
 
 **Die Runtime bleibt hinter `await import(`.** `@rive-app/canvas-single` bündelt
 seine WASM ins JavaScript — 2,5 MB in einem eigenen Chunk, der in keinem

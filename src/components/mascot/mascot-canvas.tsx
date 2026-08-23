@@ -4,10 +4,10 @@ import { useEffect, useRef, useState } from 'react';
 import { useReducedMotion } from '@/lib/use-media-query';
 import type { MascotMood } from '@/services/nutrition/mascot';
 import {
-  ARTBOARD,
   RIVE_SRC,
   STATE_MACHINE,
   applyMood,
+  initCharacter,
   type MoodTarget,
 } from './rive-asset';
 
@@ -95,12 +95,15 @@ export function MascotCanvas({
       const rive = new Rive({
         canvas,
         src: RIVE_SRC,
-        artboard: ARTBOARD,
         stateMachines: STATE_MACHINE,
         autoplay: true,
+        // The whole control surface of this file is a bound ViewModel; without
+        // this there is nothing to set. See the comment in `rive-asset.ts`.
+        autoBind: true,
         onLoad: () => {
           if (cancelled) return;
           rive.resizeDrawingSurfaceToCanvas();
+          initCharacter(rive);
           applyMood(rive, mood);
           // Only now does the canvas cover the poster, so a failure to load
           // leaves the still frame visible instead of an empty box.
