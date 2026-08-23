@@ -316,6 +316,25 @@ export const WEEKDAY_LABELS = [
 ] as const;
 
 /**
+ * Two letters, not one.
+ *
+ * A single initial is ambiguous in German three times over — Montag/Mittwoch,
+ * Dienstag/Donnerstag, Samstag/Sonntag all collide. In a full week the position
+ * disambiguates them, but the day-dot row is only as long as the history: a
+ * fresh account shows two tiles reading "S" and "S" and nothing on screen says
+ * which is which.
+ */
+export const WEEKDAY_SHORT = [
+  'Mo',
+  'Di',
+  'Mi',
+  'Do',
+  'Fr',
+  'Sa',
+  'So',
+] as const;
+
+/**
  * The five values the daily check calls its "Kernwerte".
  *
  * They were an anonymous array inside `daily-log-form.tsx`, counted there to

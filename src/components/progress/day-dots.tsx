@@ -1,10 +1,9 @@
 import Link from 'next/link';
 import { Check, Shield } from 'lucide-react';
+import { WEEKDAY_SHORT } from '@/lib/scales';
 import { formatLogDateLong } from '@/lib/time';
 import type { StreakDay } from '@/services/progress/types';
 import { cn } from '@/lib/utils';
-
-const WEEKDAY_INITIALS = ['M', 'D', 'M', 'D', 'F', 'S', 'S'];
 
 /**
  * The last few logical days, one tappable dot each.
@@ -54,8 +53,11 @@ export function DayDots({
                   'border-dashed border-line-strong bg-transparent text-muted'
               )}
             >
-              <span aria-hidden className="text-[0.6rem] leading-none">
-                {WEEKDAY_INITIALS[weekdayFor[index]]}
+              <span
+                aria-hidden
+                className="text-[0.6rem] font-semibold uppercase leading-none"
+              >
+                {WEEKDAY_SHORT[weekdayFor[index]]}
               </span>
               <span aria-hidden className="grid h-4 place-items-center">
                 {counted ? (

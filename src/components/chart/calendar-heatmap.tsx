@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { WEEKDAY_SHORT } from '@/lib/scales';
 import { formatLogDateLong, weekdayOf, type LogDate } from '@/lib/time';
 import { rampClassFor, rampTextClassFor } from '@/lib/chart-theme';
 import { cn } from '@/lib/utils';
@@ -28,8 +29,6 @@ export type CalendarCell = {
   isFlare: boolean;
 };
 
-const WEEKDAY_INITIALS = ['M', 'D', 'M', 'D', 'F', 'S', 'S'];
-
 export function CalendarHeatmap({
   cells,
   /** Print the number in the cell. Sensible up to ~5 weeks. */
@@ -48,7 +47,7 @@ export function CalendarHeatmap({
   return (
     <div>
       <div className="mb-1 grid grid-cols-7 gap-1">
-        {WEEKDAY_INITIALS.map((initial, index) => (
+        {WEEKDAY_SHORT.map((initial, index) => (
           <span
             key={index}
             aria-hidden

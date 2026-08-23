@@ -1,4 +1,5 @@
 import { Stat, StatGroup } from '@/components/ui/stat';
+import { WEEKDAY_SHORT } from '@/lib/scales';
 import { formatLogDateShort, weekdayOf, type LogDate } from '@/lib/time';
 import {
   averageScore,
@@ -7,8 +8,6 @@ import {
 } from '@/services/progress/completeness';
 import type { DayCompleteness } from '@/services/progress/types';
 import { cn } from '@/lib/utils';
-
-const WEEKDAY_INITIALS = ['M', 'D', 'M', 'D', 'F', 'S', 'S'];
 
 /**
  * Seven days as columns, plus the two numbers that summarise them.
@@ -104,7 +103,7 @@ function DayColumn({ day }: { day: DayCompleteness }) {
         aria-hidden
         className="text-eyebrow font-semibold uppercase text-muted"
       >
-        {WEEKDAY_INITIALS[weekday]}
+        {WEEKDAY_SHORT[weekday]}
       </span>
     </li>
   );
