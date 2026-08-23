@@ -7,10 +7,10 @@ import type { MascotMood } from '@/services/nutrition/mascot';
  * this app's own vocabulary. Swapping the drawing, or swapping Rive for
  * something else entirely, is meant to cost this file and nothing else.
  *
- * Whether the files are actually present is NOT decided here — see `artwork.ts`,
- * which looks. While they are missing the poster falls back to a glyph and the
- * canvas never mounts, so every appearance renders and reads correctly with no
- * asset in the repository at all.
+ * Whether the file is actually present is NOT decided here — see `artwork.ts`,
+ * which looks. There is no still frame behind the canvas any more: the figure is
+ * this file or it is nothing, and every screen says everything it has to say in
+ * text either way.
  *
  * This module stays free of `node:fs` and of the Rive package, because the
  * client island imports it. The functions below type their argument
@@ -23,13 +23,6 @@ import type { MascotMood } from '@/services/nutrition/mascot';
  * cache bump for every other asset.
  */
 export const RIVE_SRC = '/mascot/companion-v1.riv';
-
-export const POSTER_SRC: Record<MascotMood, string> = {
-  happy: '/mascot/happy.png',
-  concerned: '/mascot/concerned.png',
-  curious: '/mascot/curious.png',
-  neutral: '/mascot/neutral.png',
-};
 
 /*
  * These names were read off the file, not guessed.
@@ -46,17 +39,23 @@ export const STATE_MACHINE = 'Animations';
 /** Enum property on the bound ViewModel. Values come from `FaceEmotions`. */
 export const FACE_PROPERTY = 'FaceEmotion';
 
-/** The file ships two characters; the default is the other one. */
+/** The file ships two characters, and this is the only way to pick one. */
 export const CHARACTER_PROPERTY = 'CharacterSelect';
 
 /*
- * "Merv", the amber one, and not the default "Orson".
+ * "Orson", the violet one.
  *
- * Orson is a saturated violet. Against #fcf8f9 and the apricot primary of this
- * palette he reads as imported from another product. Merv's amber sits almost
- * exactly on --color-primary, so the figure belongs to the screen it stands on.
+ * The enum `Characters` has exactly two values, and their colours are keyframes
+ * in the file rather than a property anything can set: `col_merv` is amber
+ * (#84501A, #704316), `col_orson` is violet (#492C70, #583784), and `col_select`
+ * slaves them to the enum below. So there is no third colour short of editing
+ * the .riv, and no way to recolour either figure at runtime.
+ *
+ * Merv's amber sat almost exactly on --color-primary. Orson's violet does not,
+ * and that is the trade: he reads as his own element on #fcf8f9 rather than as
+ * part of the apricot the buttons are made of.
  */
-export const CHARACTER = 'Merv';
+export const CHARACTER = 'Orson';
 
 /**
  * Mood to face.
@@ -131,7 +130,7 @@ export const IDLE_EVERY_MS = 45_000;
  * the tab bar, and the two together are what reads as stepping out.
  *
  * NO CUE TOUCHES THE FACE. The file offers an `Eating` face and it would be the
- * obvious partner for `anim_cookie`, but at the 112 px this is drawn at, its
+ * obvious partner for `anim_cookie`, but at the 144 px this is drawn at, its
  * open mouth reads as a grimace rather than as a bite. The cookie in both paws
  * carries the meaning, and the face keeps saying what the day says.
  */
@@ -173,6 +172,11 @@ export type MoodTarget = {
  * Separate from `applyMood` because it must not run on every mood change: the
  * enum assignment restarts the character's entry animation, and a figure that
  * re-materialised whenever the salt total moved would be absurd.
+ *
+ * Orson happens to be index 0 of `Characters`, so this now sets the enum to the
+ * value it already holds and a failure degrades to the RIGHT figure rather than
+ * to the other one. It stays explicit anyway: the choice belongs in the code,
+ * not in whichever value the artist happened to author first.
  */
 export function initCharacter(rive: MoodTarget): void {
   try {
@@ -188,9 +192,9 @@ export function initCharacter(rive: MoodTarget): void {
  *
  * Probes and swallows on purpose. A property name that does not exist returns
  * null in the Rive API rather than throwing, so the failure has to degrade to
- * "the idle animation keeps playing over the poster" instead of to an exception
- * in a render. Nothing is logged: this runs on a screen full of health data and
- * a console line about it would be the wrong habit to start.
+ * "the idle animation keeps playing" instead of to an exception in a render.
+ * Nothing is logged: this runs on a screen full of health data and a console
+ * line about it would be the wrong habit to start.
  */
 export function applyMood(rive: MoodTarget, mood: MascotMood): void {
   try {
@@ -203,7 +207,7 @@ export function applyMood(rive: MoodTarget, mood: MascotMood): void {
     const gesture = MOOD_GESTURE[mood];
     if (gesture) instance.trigger(gesture)?.trigger();
   } catch {
-    // The poster underneath is the fallback and it is already correct.
+    // The figure keeps whatever face it had. Nothing else to do.
   }
 }
 
@@ -216,7 +220,7 @@ export function applyCue(rive: MoodTarget, cue: MascotCue): void {
   try {
     rive.viewModelInstance?.trigger(CUE_GESTURE[cue])?.trigger();
   } catch {
-    // The poster underneath is the fallback and it is already correct.
+    // The figure keeps whatever face it had. Nothing else to do.
   }
 }
 
@@ -241,5 +245,5 @@ export const ASSET_ATTRIBUTION = {
   licence: 'CC BY 4.0',
   licenceUrl: 'https://creativecommons.org/licenses/by/4.0/',
   changesDe:
-    'Figur „Merv“ gewählt, drei der acht Gesichter den Stimmungen zugeordnet, sechs der elf Bewegungen verwendet, Standbilder daraus exportiert.',
+    'Figur „Orson“ gewählt, drei der acht Gesichter den Stimmungen zugeordnet, sechs der elf Bewegungen verwendet.',
 } as const;

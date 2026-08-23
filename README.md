@@ -152,22 +152,26 @@ DOI [10.25826/Data20251217-134202-0](https://doi.org/10.25826/Data20251217-13420
 Lizenz CC BY 4.0. Die Namensnennung ist Lizenzbedingung und steht auch in der
 App unter „Einstellungen“.
 
-**Der Begleiter braucht kein Asset, um zu funktionieren.** Die Figur besteht aus
-zwei Schichten: Standbild plus Satz kommen aus dem Server-Markup, die Animation
-ist eine optionale Client-Insel darüber. Fehlt das Artwork, zeigt sie ein Glyph
-und lädt keine Runtime — jeder Auftritt rendert und liest sich trotzdem
-vollständig. Das ist der Grund, warum das Feature fertig war, bevor die
-Lizenzfrage es war.
+**Es gibt genau eine Darstellung des Begleiters.** Vorher waren es zwei: ein
+512er-PNG als Standbild und darüber das transparente Canvas. Ausgeblendet wurde
+das PNG nie — das Canvas hob nur seine *eigene* Opazität an, und Rives
+Standard-`Fit.contain` setzte die lebende Figur auf einen anderen Maßstab als
+den engen Quadratschnitt des PNGs. Ergebnis: das Maskottchen zweimal in der
+Ecke, eines bewegt, eines nicht. Die Standbild-Schicht ist deshalb ganz weg, und
+ein Test in `services/nutrition/__tests__/mascot.test.ts` hält sie draußen.
 
-**Ob Artwork da ist, wird nachgesehen, nicht konfiguriert.**
-`src/components/mascot/artwork.ts` prüft einmal beim Modul-Laden, ob die vier
-PNGs und die `.riv` unter `public/mascot/` liegen. Ein handgesetztes Flag könnte
-in beide Richtungen lügen: auf true ohne Dateien gibt es vier 404-Bilder auf dem
-Tagesschirm, auf false mit Dateien erscheint die Zeichnung stillschweigend nie.
-Beides sieht man im Diff nicht. Der Preis ist, dass neue Dateien einen Neustart
-brauchen, keinen Rebuild — der richtige Tausch dafür, nie ein kaputtes Bild
-auszuliefern. Das Canvas liegt außerdem *über* dem Standbild, also bleibt bei
-einer nicht ladenden `.riv` das Standbild stehen.
+Die Figur ist damit die `.riv` oder nichts. Ohne JavaScript, vor dem Laden der
+Datei und bei `prefers-reduced-motion: reduce` erscheint der Begleiter einfach
+nicht — jeder Schirm sagt ohnehin in Text, was er zu sagen hat. Der Auftritt
+hängt am `onReadyChange` des Canvas, damit in der Ecke nie ein leerer, aber
+antippbarer 144-px-Kasten steht.
+
+**Ob das Asset da ist, wird nachgesehen, nicht konfiguriert.**
+`src/components/mascot/artwork.ts` prüft einmal beim Modul-Laden, ob die `.riv`
+unter `public/mascot/` liegt. Ein handgesetztes Flag könnte in beide Richtungen
+lügen, und beides sieht man im Diff nicht. Fehlt die Datei, rendert `MascotDock`
+gar nichts — noch vor dem 90-Tage-Read, der sonst für nichts liefe. Der Preis
+ist, dass eine neue Datei einen Neustart braucht, keinen Rebuild.
 
 **Ein Asset, das Ausdrücke verspricht, muss sie nicht nach außen geben.** Die
 erste Wahl für dieses Feature war ein Wolken-Maskottchen, dessen Seite „State
@@ -186,11 +190,15 @@ wütend auf die Person wird und ein Tag über einer Salzgrenze kein Drama ist.
 
 Ein Eigenschaftsname, den es nicht gibt, liefert in der Rive-API `null` statt zu
 werfen. `applyMood` probiert deshalb und schluckt: die Verschlechterung ist
-„Idle-Animation über dem Standbild", kein Fehler im Render.
+„die Idle-Animation läuft weiter", kein Fehler im Render.
 
-Die Standbilder sind aus derselben Datei gerendert, mit Playwright und der
-Rive-Runtime im Browser — Chromium liegt für die E2E-Tests ohnehin da. Sie sind
-abgeleitete Werke und fallen unter dieselbe CC-BY-Nennung.
+**Die Farbe ist an die Figur gebunden, nicht einstellbar.** Das Enum
+`Characters` hat genau zwei Werte, und ihre Farben liegen als Keyframes in der
+Datei: `col_merv` ist Amber (#84501A, #704316), `col_orson` Violett (#492C70,
+#583784), und `col_select` hängt sie an `CharacterSelect`. Es gibt keine Farb-,
+Skin- oder Theme-Eigenschaft — eine dritte Farbe hieße, die `.riv` zu
+bearbeiten. Gewählt ist `Orson`, das Violett. Das ist zugleich der Enum-Default,
+also fällt ein fehlgeschlagenes `initCharacter` auf die richtige Figur zurück.
 
 **Die Runtime bleibt hinter `await import(`.** `@rive-app/canvas-single` bündelt
 seine WASM ins JavaScript — 2,5 MB in einem eigenen Chunk, der in keinem

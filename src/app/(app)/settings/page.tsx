@@ -9,7 +9,7 @@ import { Card, CardHeader, CardMeta, CardTitle } from '@/components/ui/card';
 import { PageHeader } from '@/components/ui/page-header';
 import { InstallPrompt } from '@/components/pwa/install-prompt';
 import { ASSET_ATTRIBUTION } from '@/components/mascot/rive-asset';
-import { HAS_ARTWORK } from '@/components/mascot/artwork';
+import { HAS_RIVE } from '@/components/mascot/artwork';
 import { MascotSwitch } from '@/components/settings/mascot-switch';
 import { TrackWeightSwitch } from '@/components/settings/track-weight-switch';
 import { TraceExposureSwitch } from '@/components/settings/trace-exposure-switch';
@@ -115,7 +115,7 @@ export default async function SettingsPage() {
        * that is not shipped would be a citation of nothing, and CC BY asks for
        * the credit to accompany the work.
        */}
-      {HAS_ARTWORK ? (
+      {HAS_RIVE ? (
         <Card>
           <CardTitle>Illustration</CardTitle>
           <CardMeta className="mt-1">

@@ -30,14 +30,20 @@ import {
  * THE RUNTIME IS NEVER LOADED SPECULATIVELY. `@rive-app/canvas-single` carries
  * its WASM inline, so the chunk is large; it is reached only through the dynamic
  * import below, exactly as `use-barcode-scanner.ts` reaches zxing. Under
- * `prefers-reduced-motion: reduce` the effect returns before the import, which
- * is stricter than the global CSS rule — that one only stops CSS animations, it
+ * `prefers-reduced-motion: reduce` the frame does not render this component at
+ * all and the effect below returns before the import anyway — two floors under
+ * the same thing, because the global CSS rule only stops CSS animations and
  * cannot stop a download.
  *
  * ONE INSTANCE PER PAGE. The dock is the only caller now, but the module-level
- * claim is the net under that: a second island mounting at the same time renders
- * nothing and leaves the poster standing, rather than starting a second render
+ * claim is the net under that: a second island mounting at the same time draws
+ * nothing and never reports itself ready, rather than starting a second render
  * loop on a phone.
+ *
+ * THE DOCK WAITS FOR THIS FILE. There is no still frame behind the canvas any
+ * more, so `onReadyChange` is what tells the frame there is something to show —
+ * it stays away, untappable, until the drawing is actually loaded. Which also
+ * means the walk cycle and the slide-up now start on the same frame.
  *
  * IT STOPS WHEN NOBODY IS LOOKING. This app is installed as a PWA and stays
  * open for days (see the comment in `use-media-query.ts`), so a loop that ran
@@ -61,7 +67,7 @@ export function MascotCanvas({
   mood,
   cue,
   cueToken,
-  size,
+  onReadyChange,
 }: {
   mood: MascotMood;
   /** The last thing the person did, or null. */
@@ -71,7 +77,11 @@ export function MascotCanvas({
    * unchanged — two meals in a row are two acknowledgements, not one.
    */
   cueToken: number;
-  size: number;
+  /**
+   * Called when there is, or is no longer, a drawing on screen. The frame keeps
+   * the whole dock away until this says true.
+   */
+  onReadyChange: (ready: boolean) => void;
 }) {
   const reduced = useReducedMotion();
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -141,9 +151,11 @@ export function MascotCanvas({
           initCharacter(rive);
           applyMood(rive, mood);
           holdThenRest();
-          // Only now does the canvas cover the poster, so a failure to load
-          // leaves the still frame visible instead of an empty box.
+          // Only now is there anything to look at, which is also the moment
+          // the dock is allowed to step out. A file that never loads leaves the
+          // corner empty rather than leaving an invisible tap target in it.
           setReady(true);
+          onReadyChange(true);
         },
         // Deliberately silent: a missing or renamed asset is a degraded
         // drawing, not an error worth a console line on this screen.
@@ -169,7 +181,7 @@ export function MascotCanvas({
         restPose(rive, IDLE_TRIGGER);
       }, IDLE_EVERY_MS);
     })().catch(() => {
-      // The poster stays. Nothing else to do and nothing to say.
+      // Nothing was reported ready, so the corner stays empty. Nothing to say.
     });
 
     return () => {
@@ -183,9 +195,11 @@ export function MascotCanvas({
       riveRef.current = null;
       claimed = false;
       setReady(false);
+      onReadyChange(false);
     };
     // `mood` is applied by the effect below; re-mounting the runtime for a mood
-    // change would throw away the loaded file.
+    // change would throw away the loaded file. `onReadyChange` is left out for
+    // the same reason — a new function identity must not reload the file.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [reduced]);
 
@@ -211,9 +225,14 @@ export function MascotCanvas({
   return (
     <canvas
       ref={canvasRef}
-      width={size * 2}
-      height={size * 2}
       aria-hidden
+      /*
+       * No width/height attributes: `resizeDrawingSurfaceToCanvas()` derives the
+       * backing store from this box times the device pixel ratio, and it runs in
+       * `onLoad` before the opacity goes up, so the 300x150 default is never
+       * seen. The size of the figure lives in ONE place — the Tailwind box in
+       * `mascot-dock-frame.tsx` — instead of being repeated as a number here.
+       */
       /* The mood is written out beside the figure, so this is decoration. */
       className="absolute inset-0 size-full transition-opacity duration-320"
       style={{ opacity: ready ? 1 : 0 }}

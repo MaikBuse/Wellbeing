@@ -396,14 +396,15 @@ describe('das Stimmungs-Mapping', () => {
  * the day screen would just get quietly heavier for everyone, including the
  * people who turned the mascot off.
  */
-describe('die Rive-Runtime', () => {
-  function sourcesUnder(path: string): string[] {
-    if (!statSync(path).isDirectory()) {
-      return /\.tsx?$/.test(path) && !/\.test\.tsx?$/.test(path) ? [path] : [];
-    }
-    return readdirSync(path).flatMap((entry) => sourcesUnder(join(path, entry)));
+/** Every non-test source file under a path, for the two static scans below. */
+function sourcesUnder(path: string): string[] {
+  if (!statSync(path).isDirectory()) {
+    return /\.tsx?$/.test(path) && !/\.test\.tsx?$/.test(path) ? [path] : [];
   }
+  return readdirSync(path).flatMap((entry) => sourcesUnder(join(path, entry)));
+}
 
+describe('die Rive-Runtime', () => {
   it('is only ever reached through an await import', () => {
     const offenders: string[] = [];
     let mentions = 0;
@@ -423,6 +424,48 @@ describe('die Rive-Runtime', () => {
     expect(offenders).toEqual([]);
     // Proves the scan found the import rather than finding nothing at all.
     expect(mentions).toBeGreaterThan(0);
+  });
+});
+
+/**
+ * There is no still frame behind the figure, and there must not be one again.
+ *
+ * The stills were a PNG layer under a transparent canvas, and nothing ever hid
+ * them: the canvas only faded ITSELF in, and Rive's default `Fit.contain` put
+ * the live figure at a different scale than the square crop the PNG was. So the
+ * corner showed the mascot twice, once moving and once not — and the diff that
+ * did it looked entirely reasonable, which is why this is a test and not a
+ * comment.
+ *
+ * The figure is the .riv or it is nothing. Without JavaScript, before the file
+ * loads, and under `prefers-reduced-motion: reduce`, the companion is simply
+ * absent and every screen says what it has to say in text.
+ */
+describe('die Standbild-Schicht', () => {
+  it('is gone from the sources, and stays gone', () => {
+    const offenders: string[] = [];
+    let scanned = 0;
+
+    for (const file of sourcesUnder('src')) {
+      scanned += 1;
+      const source = readFileSync(file, 'utf8');
+      for (const line of source.split('\n')) {
+        if (/mascot-poster|MascotPoster|\/mascot\/[\w-]+\.png/.test(line)) {
+          offenders.push(`${file}: ${line.trim()}`);
+        }
+      }
+    }
+
+    expect(offenders).toEqual([]);
+    // Proves the scan read files rather than an empty directory listing.
+    expect(scanned).toBeGreaterThan(0);
+  });
+
+  it('leaves no stray drawing in public/mascot', () => {
+    const files = readdirSync('public/mascot');
+    expect(files.filter((name) => name.endsWith('.png'))).toEqual([]);
+    // The one file that does belong there.
+    expect(files).toContain('companion-v1.riv');
   });
 });
 
@@ -452,7 +495,7 @@ describe('die Regungen', () => {
   });
 
   /*
-   * The four faces this app never wears. Merv can look angry, terrified and
+   * The four faces this app never wears. Orson can look angry, terrified and
    * intensely sad; a symptom diary has no business doing any of the three at
    * the person keeping it. `Sad` is the one exception and it belongs to
    * `concerned` alone, which the test above pins down.

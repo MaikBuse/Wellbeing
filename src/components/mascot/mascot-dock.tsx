@@ -5,8 +5,7 @@ import { todayLogDate } from '@/lib/time';
 import { loadCompanion } from '@/services/companion/loader';
 import type { CompanionNote } from '@/services/companion/agenda';
 import { MascotDockFrame } from './mascot-dock-frame';
-import { MascotPoster } from './mascot-poster';
-import { HAS_ARTWORK } from './artwork';
+import { HAS_RIVE } from './artwork';
 
 /**
  * The companion, on every screen of the app.
@@ -24,10 +23,16 @@ import { HAS_ARTWORK } from './artwork';
  *
  * All of it is server markup. The client island below receives a mood enum,
  * three counters and two slots of finished HTML.
+ *
+ * The drawing is the only depiction there is — there are no still frames any
+ * more — so a missing .riv means no companion rather than a broken image, and
+ * the check for it comes before the ninety-day read that would otherwise be
+ * done for nothing.
  */
 export async function MascotDock() {
   const { user, settings } = await requireUserWithSettings();
   if (!settings.showMascot) return null;
+  if (!HAS_RIVE) return null;
 
   const today = todayLogDate(settings.timeZone, settings.dayStartHour);
   const data = await loadCompanion(user.id, today, settings);
@@ -68,13 +73,6 @@ export async function MascotDock() {
       pulse={data.pulse}
       label={label}
       logDate={data.logDate}
-      still={
-        <MascotPoster
-          mood={data.state.mood}
-          size={112}
-          className="absolute inset-0"
-        />
-      }
       chip={
         speaksUp ? (
           <p className="text-xs leading-snug text-fg">
@@ -88,16 +86,14 @@ export async function MascotDock() {
           {data.agenda.more.map((note) => (
             <NotePanel key={note.topic} note={note} mood={mood} muted />
           ))}
-          {HAS_ARTWORK ? (
-            <p className="text-xs text-muted">
-              Merv steht in der Ecke, solange du ihn dort haben willst — der
-              Schalter dafür liegt unter{' '}
-              <Link href="/settings" className="text-primary-strong">
-                Mehr
-              </Link>
-              .
-            </p>
-          ) : null}
+          <p className="text-xs text-muted">
+            Orson steht in der Ecke, solange du ihn dort haben willst — der
+            Schalter dafür liegt unter{' '}
+            <Link href="/settings" className="text-primary-strong">
+              Mehr
+            </Link>
+            .
+          </p>
         </div>
       }
     />
