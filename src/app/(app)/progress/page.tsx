@@ -12,6 +12,13 @@ import { todayLogDate, weekdayOf } from '@/lib/time';
 import { averageScore } from '@/services/progress/completeness';
 import { loadProgress } from '@/services/progress/loader';
 import {
+  NUTRITION_QUOTIENT_DAYS,
+  loadNutrition,
+} from '@/services/nutrition/loader';
+import { MIN_EVALUABLE_DAYS } from '@/services/nutrition/period';
+import { mascotMoodForWeek } from '@/services/nutrition/mascot';
+import { MascotView } from '@/components/mascot/mascot-view';
+import {
   JOKER_EARN_EVERY,
   JOKER_MAX,
   tailDays,
@@ -31,7 +38,24 @@ const AVERAGE_DAYS = 30;
 export default async function ProgressPage() {
   const { user, settings } = await requireUserWithSettings();
   const today = todayLogDate(settings.timeZone, settings.dayStartHour);
-  const progress = await loadProgress(user.id, today);
+  /*
+   * Fourteen days, not the loader's default ninety: only `summary` is read here,
+   * and the two reads are independent, so they run side by side.
+   */
+  const [progress, nutrition] = await Promise.all([
+    loadProgress(user.id, today),
+    settings.showMascot
+      ? loadNutrition(user.id, { days: NUTRITION_QUOTIENT_DAYS })
+      : Promise.resolve(null),
+  ]);
+
+  const weekMascot =
+    nutrition && nutrition.blocked === null
+      ? mascotMoodForWeek({
+          summary: nutrition.recent,
+          minEvaluableDays: MIN_EVALUABLE_DAYS.week,
+        })
+      : null;
 
   const recent = tailDays(progress.streak, RECENT_DAYS);
   const recentWeekdays = recent.map((day) => weekdayOf(day.logDate));
@@ -115,6 +139,18 @@ export default async function ProgressPage() {
               dagegen.
             </CardMeta>
           </CardHeader>
+
+          {/* A second reading of the same window, in words. The columns below
+           * stay the primary one — a face is never the only encoding. */}
+          {weekMascot ? (
+            <MascotView
+              state={weekMascot}
+              step={null}
+              scope="week"
+              variant="stage"
+              className="mb-4"
+            />
+          ) : null}
 
           <WeekReview
             days={thisWeek}

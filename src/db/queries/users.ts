@@ -9,6 +9,8 @@ export type UserSettings = {
   trackCycle: boolean;
   trackWeight: boolean;
   countTraceExposure: boolean;
+  /** Whether the mascot appears. Independent of the target framing. */
+  showMascot: boolean;
   /**
    * Which version of the nutrient-goal framing was acknowledged.
    *
@@ -66,6 +68,7 @@ export async function getUserSettings(userId: string): Promise<UserSettings> {
       trackCycle: true,
       trackWeight: true,
       countTraceExposure: false,
+      showMascot: true,
       nutritionAckVersion: null,
       nutritionAckAt: null,
     };
@@ -76,6 +79,7 @@ export async function getUserSettings(userId: string): Promise<UserSettings> {
     trackCycle: row.trackCycle,
     trackWeight: row.trackWeight,
     countTraceExposure: row.countTraceExposure,
+    showMascot: row.showMascot,
     nutritionAckVersion: row.nutritionAckVersion,
     nutritionAckAt: row.nutritionAckAt,
   };

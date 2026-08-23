@@ -10,7 +10,8 @@
 // v2: the icon files were replaced with the real logo. The URLs did not
 // change, and /icons/* is served cache-first, so without this bump an already
 // installed PWA would keep the old placeholders indefinitely.
-const CACHE = 'wb-static-v2';
+// v3: /mascot/* joined the cache-first paths.
+const CACHE = 'wb-static-v3';
 const SHELL = [
   '/offline',
   '/icons/icon-32.png',
@@ -19,6 +20,13 @@ const SHELL = [
   // The offline page renders this one, so it has to survive going offline.
   '/icons/logo-256.png',
   '/apple-touch-icon.png',
+  // The mascot's still frames. The .riv is deliberately NOT here: addAll is
+  // all-or-nothing, so a single large file failing would cost the whole shell.
+  // It is picked up cache-first on the first visit instead.
+  '/mascot/happy.png',
+  '/mascot/concerned.png',
+  '/mascot/curious.png',
+  '/mascot/neutral.png',
 ];
 
 self.addEventListener('install', (event) => {
@@ -53,7 +61,10 @@ self.addEventListener('fetch', (event) => {
 
   if (
     url.pathname.startsWith('/_next/static/') ||
-    url.pathname.startsWith('/icons/')
+    url.pathname.startsWith('/icons/') ||
+    // Immutable public artwork. Versioned filenames, no health data, so
+    // cache-first here does not bend the rule at the top of this file.
+    url.pathname.startsWith('/mascot/')
   ) {
     event.respondWith(
       caches.match(request).then(

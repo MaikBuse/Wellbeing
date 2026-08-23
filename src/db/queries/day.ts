@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray, isNull } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { db } from '../index';
 import {
   dailyLogJoints,
@@ -318,4 +318,23 @@ export async function das28Joints() {
 
 export async function allJoints() {
   return db.select().from(joints).orderBy(asc(joints.sortOrder));
+}
+
+/**
+ * How many distinct logical days she has ever recorded a meal on.
+ *
+ * Distinct `log_date` rather than a count of meals, and lifetime rather than
+ * windowed. Both matter: the mascot's bond is built on this number, and a bond
+ * that could shrink would be the loss aversion the rest of this codebase avoids
+ * on purpose. `loadNutrition` rolls a 90-day window, so anything derived from
+ * it falls back as old days age out. This only ever grows.
+ *
+ * Index-only over `meal_user_day_idx`.
+ */
+export async function loggedDayCount(userId: string): Promise<number> {
+  const [row] = await db
+    .select({ days: sql<number>`count(distinct ${meals.logDate})` })
+    .from(meals)
+    .where(eq(meals.userId, userId));
+  return Number(row?.days ?? 0);
 }

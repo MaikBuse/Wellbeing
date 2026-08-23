@@ -268,6 +268,40 @@ export function isBeforeDayBoundary(
   return toLogDate(now, timeZone, dayStartHour) !== toLogDate(now, timeZone, 0);
 }
 
+/** From this hour on, the day is treated as done enough to sum up. */
+export const EVENING_HOUR = 19;
+
+/**
+ * True once the logical day is far enough along to be talked about in the past
+ * tense.
+ *
+ * Deliberately a clock reading and not "all main slots recorded": the point of
+ * a closing line is to appear on the days that are NOT complete, and a check on
+ * completeness would hide it exactly then.
+ *
+ * Measured against the LOGICAL day, so the small hours before `dayStartHour`
+ * still belong to yesterday evening and count as late. Server-side only —
+ * calling this during a client render would give a different answer than the
+ * server sent and mismatch on hydration.
+ */
+export function isEveningIn(
+  timeZone: string = DEFAULT_TIME_ZONE,
+  dayStartHour: number = DEFAULT_DAY_START_HOUR,
+  now: Date = new Date()
+): boolean {
+  const hour = Number(
+    new Intl.DateTimeFormat('en-GB', {
+      timeZone,
+      hour: '2-digit',
+      hour12: false,
+    }).format(now)
+  );
+  // Before the boundary the wall clock says 01:00 but the logical day is
+  // yesterday, and yesterday is definitively over.
+  if (isBeforeDayBoundary(timeZone, dayStartHour, now)) return true;
+  return hour >= EVENING_HOUR;
+}
+
 /**
  * ISO week identifier, 'YYYY-Www'.
  *

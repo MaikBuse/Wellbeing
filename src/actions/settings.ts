@@ -5,6 +5,7 @@ import { db } from '@/db';
 import { userSettings } from '@/db/schema';
 import { revalidateAnalysisSettings, revalidateSettings } from '@/lib/revalidate';
 import {
+  updateMascotSchema,
   updateSettingsSchema,
   updateTraceExposureSchema,
 } from '@/lib/validation/settings';
@@ -86,6 +87,38 @@ export async function setCountTraceExposure(input: {
     });
 
   revalidateAnalysisSettings();
+
+  return { ok: true };
+}
+
+/**
+ * Toggles the mascot.
+ *
+ * `revalidateSettings` and not something narrower: the figure appears on the day
+ * screen and on the progress screen, and both are inside the DAY set.
+ */
+export async function setShowMascot(input: {
+  showMascot: boolean;
+}): Promise<ActionResult> {
+  const user = await requireUserForAction();
+
+  const parsed = updateMascotSchema.safeParse(input);
+  if (!parsed.success) {
+    return {
+      ok: false,
+      error: parsed.error.issues[0]?.message ?? 'Eingabe ungültig',
+    };
+  }
+
+  await db
+    .insert(userSettings)
+    .values({ userId: user.id, showMascot: parsed.data.showMascot })
+    .onConflictDoUpdate({
+      target: userSettings.userId,
+      set: { showMascot: parsed.data.showMascot, updatedAt: new Date() },
+    });
+
+  revalidateSettings();
 
   return { ok: true };
 }

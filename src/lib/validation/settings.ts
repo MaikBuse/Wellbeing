@@ -20,3 +20,8 @@ export const updateSettingsSchema = z.object({
 export const updateTraceExposureSchema = z.object({
   countTraceExposure: z.boolean(),
 });
+
+/** Whether the mascot appears. Cosmetic, and the only flag that is. */
+export const updateMascotSchema = z.object({
+  showMascot: z.boolean(),
+});

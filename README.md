@@ -152,6 +152,19 @@ DOI [10.25826/Data20251217-134202-0](https://doi.org/10.25826/Data20251217-13420
 Lizenz CC BY 4.0. Die Namensnennung ist Lizenzbedingung und steht auch in der
 App unter „Einstellungen“.
 
+**Der Begleiter braucht kein Asset, um zu funktionieren.** Die Figur besteht aus
+zwei Schichten: Standbild plus Satz kommen aus dem Server-Markup, die Animation
+ist eine optionale Client-Insel darüber. Solange `HAS_ARTWORK` in
+`src/components/mascot/rive-asset.ts` false ist, zeigt sie ein Glyph und lädt
+keine Runtime — jeder Auftritt rendert und liest sich trotzdem vollständig. Das
+ist der Grund, warum das Feature fertig war, bevor die Lizenzfrage es war.
+
+Sobald eine `.riv` in `public/mascot/` liegt: Titel, Urheber, Quelle und Lizenz
+gehören in `ASSET_ATTRIBUTION` derselben Datei. Die Settings-Karte
+„Illustration" rendert daraus und erscheint nur, wenn das Asset wirklich
+ausgeliefert wird — eine Namensnennung für eine Datei, die nicht im Repo liegt,
+wäre ein Zitat von nichts. Bei CC BY ist die Nennung Lizenzbedingung.
+
 **Dosisänderungen sind Historie, kein Edit.** Das alte Schema wird mit
 `valid_to` geschlossen und ein neues angelegt. Die vorherige Dosis ist eine
 Aussage über einen Zeitraum und in der Auswertung ein Störfaktor.

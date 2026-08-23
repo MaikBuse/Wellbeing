@@ -1,0 +1,1 @@
+ALTER TABLE "user_setting" ADD COLUMN "show_mascot" boolean DEFAULT true NOT NULL;

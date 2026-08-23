@@ -49,6 +49,15 @@ export const userSettings = pgTable(
     countTraceExposure: boolean('count_trace_exposure')
       .notNull()
       .default(false),
+    /**
+     * Whether the mascot appears at all.
+     *
+     * A separate flag from `nutritionAckVersion` on purpose: that one gates the
+     * NUMBERS behind their framing, this one gates a cartoon. Someone can want
+     * the targets and not want a face commenting on them, and there is no other
+     * way to say so.
+     */
+    showMascot: boolean('show_mascot').notNull().default(true),
     /*
      * Nutrient targets are hidden until the wording about them being
      * orientation values rather than a prescription has been acknowledged.

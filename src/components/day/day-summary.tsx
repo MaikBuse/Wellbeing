@@ -22,6 +22,11 @@ import type { ReactNode } from 'react';
  * than as a ninth widget: this one is already the eye's anchor and already
  * carries kcal and the macro bar, so the targets belong in it. Null whenever
  * there is no acknowledged profile, and then this renders exactly as before.
+ *
+ * `mascot` sits directly above it, for the same reason and one more: it is a
+ * sentence about the numbers underneath, so it belongs in the same card. Full
+ * width rather than beside the kcal figure — at 360 px a 72 px drawing plus a
+ * sentence next to a metric leaves neither of them room.
  */
 export function DaySummary({
   totals,
@@ -31,6 +36,7 @@ export function DaySummary({
   wellbeing,
   isFlare,
   goals = null,
+  mascot = null,
 }: {
   totals: Nutrients;
   itemCount: number;
@@ -39,6 +45,7 @@ export function DaySummary({
   wellbeing: number | null;
   isFlare: boolean;
   goals?: ReactNode;
+  mascot?: ReactNode;
 }) {
   const kcal = totals.kcal === null ? null : roundKcal(totals.kcal);
   const hasFood = itemCount > 0 && kcal !== null;
@@ -72,6 +79,10 @@ export function DaySummary({
             fatG={totals.fatG}
             carbsG={totals.carbsG}
           />
+        ) : null}
+
+        {mascot ? (
+          <div className="mt-4 border-t border-line-soft pt-3">{mascot}</div>
         ) : null}
 
         {goals}

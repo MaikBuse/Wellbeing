@@ -70,9 +70,13 @@ import {
 import { loadProgress } from '@/services/progress/loader';
 import { MILESTONE_KEYS } from '@/services/progress/milestones';
 import {
+  DENSE_FOOD_WINDOW_DAYS,
   medicationNutrientRows,
+  nutrientDenseOwnFoods,
   nutrientItemRange,
 } from '@/db/queries/nutrition';
+import { loggedDayCount } from '@/db/queries/day';
+import { getUserSettings } from '@/db/queries/users';
 import { sumDayNutrients } from '@/services/nutrition/aggregate';
 import { supplementContributions } from '@/services/nutrition/supplements';
 import type { NutrientKey } from '@/lib/nutrients';
@@ -2249,6 +2253,89 @@ console.log('\nnährstoff-ziele');
     'micronutrient sums are not rounded per item',
     Math.abs((day.totals.vitD.fromFood ?? 0) - 0.135) < 1e-9,
     String(day.totals.vitD.fromFood)
+  );
+
+  // --- The mascot's two reads ---------------------------------------------
+  /*
+   * These are the parts of the companion that only a database can prove:
+   * that the shared food catalogue does not leak one person's habits into
+   * another's suggestion, and that a nutrient nobody measured is absent rather
+   * than bottom of the ranking.
+   */
+  const since = addDays(anchor, -DENSE_FOOD_WINDOW_DAYS);
+
+  const dense = await nutrientDenseOwnFoods(user.id, 'calcium', {
+    sinceLogDate: since,
+    limit: 5,
+  });
+  check(
+    'the suggestion finds the food she actually ate',
+    dense.some((row) => row.foodId === linkedId),
+    dense.map((row) => row.name).join(', ')
+  );
+  check(
+    'and carries the catalog value per 100 g, not the logged amount',
+    Math.abs((dense.find((row) => row.foodId === linkedId)?.per100 ?? 0) - 120) <
+      1e-9,
+    String(dense.find((row) => row.foodId === linkedId)?.per100)
+  );
+
+  /*
+   * THE ownership check. `food` is shared across accounts since the catalogue
+   * became common property, so a query scoped through `food` instead of through
+   * `meal.user_id` would hand the other account's repertoire back here and look
+   * entirely plausible while doing it.
+   */
+  const denseOther = await nutrientDenseOwnFoods(otherUser.id, 'calcium', {
+    sinceLogDate: since,
+    limit: 5,
+  });
+  check(
+    'the shared catalogue does not leak her meals to the other account',
+    !denseOther.some((row) => row.foodId === linkedId),
+    denseOther.map((row) => row.name).join(', ')
+  );
+
+  // Iodine is null on the catalog row, and null is not a low score.
+  const denseIodine = await nutrientDenseOwnFoods(user.id, 'iodine', {
+    sinceLogDate: since,
+    limit: 5,
+  });
+  check(
+    'an unmeasured nutrient yields no candidate rather than a zero one',
+    !denseIodine.some((row) => row.foodId === linkedId),
+    denseIodine.map((row) => `${row.name}=${row.per100}`).join(', ')
+  );
+
+  /* Two meals were written on `anchor` alone, so days must trail meals. */
+  const [{ days: distinctDays, meals: mealRows }] = await db
+    .select({
+      days: sql<number>`count(distinct ${meals.logDate})`,
+      meals: sql<number>`count(*)`,
+    })
+    .from(meals)
+    .where(eq(meals.userId, user.id));
+  const counted = await loggedDayCount(user.id);
+  check(
+    'loggedDayCount counts days, not meals',
+    counted === Number(distinctDays) && counted < Number(mealRows),
+    `${counted} days / ${mealRows} meals`
+  );
+
+  // The no-row branch of getUserSettings: the mascot is on unless turned off.
+  const defaults = await getUserSettings(
+    '00000000-0000-0000-0000-000000000000'
+  );
+  check(
+    'a user without a settings row still gets the mascot',
+    defaults.showMascot === true,
+    String(defaults.showMascot)
+  );
+  const stored = await getUserSettings(user.id);
+  check(
+    'and the stored column defaults the same way',
+    stored.showMascot === true,
+    String(stored.showMascot)
   );
 
   // --- Profile versioning --------------------------------------------------

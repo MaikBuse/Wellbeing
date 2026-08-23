@@ -23,6 +23,10 @@ const ROOTS = [
   'src/components/nutrition',
   'src/app/(app)/nutrition',
   'src/lib/nutrition-goals.ts',
+  // The mascot speaks in whole sentences, so it carries more prose than any
+  // other part of this feature and needs the guard most.
+  'src/lib/mascot-copy.ts',
+  'src/components/mascot',
 ];
 
 const FORBIDDEN = [

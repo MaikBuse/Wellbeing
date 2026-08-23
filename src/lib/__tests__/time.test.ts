@@ -2,8 +2,10 @@ import { describe, expect, it } from 'vitest';
 import {
   addDays,
   daysBetween,
+  EVENING_HOUR,
   instantForLogDateTime,
   isBeforeDayBoundary,
+  isEveningIn,
   eachLogDate,
   logDateRange,
   MAX_RANGE_DAYS,
@@ -271,5 +273,43 @@ describe('eachLogDate', () => {
   it('rejects a runaway range', () => {
     expect(() => eachLogDate('2000-01-01', '2026-01-01')).toThrow();
     expect(MAX_RANGE_DAYS).toBe(1830);
+  });
+});
+
+describe('isEveningIn', () => {
+  /* 12:00 local on 2026-08-22 (CEST, UTC+2) => 10:00Z. */
+  it('is false in the middle of the day', () => {
+    expect(isEveningIn(TZ, 4, new Date('2026-08-22T10:00:00Z'))).toBe(false);
+  });
+
+  it('flips exactly at the evening hour', () => {
+    const before = new Date('2026-08-22T16:59:00Z'); // 18:59 local
+    const after = new Date('2026-08-22T17:00:00Z'); // 19:00 local
+    expect(EVENING_HOUR).toBe(19);
+    expect(isEveningIn(TZ, 4, before)).toBe(false);
+    expect(isEveningIn(TZ, 4, after)).toBe(true);
+  });
+
+  /*
+   * The small hours belong to the previous logical day, and that day is over.
+   * A closing line that vanished at midnight would disappear from exactly the
+   * screen someone opens when they log a late dinner.
+   */
+  it('is true before the day boundary, when the logical day is yesterday', () => {
+    const night = new Date('2026-08-21T23:00:00Z'); // 01:00 local Saturday
+    expect(isBeforeDayBoundary(TZ, 4, night)).toBe(true);
+    expect(isEveningIn(TZ, 4, night)).toBe(true);
+  });
+
+  it('is false again once the new logical day has started', () => {
+    const morning = new Date('2026-08-22T04:00:00Z'); // 06:00 local
+    expect(isEveningIn(TZ, 4, morning)).toBe(false);
+  });
+
+  it('reads the hour in the user zone, not the server zone', () => {
+    // 19:00 in Berlin is 10:00 in Los Angeles: evening there, not here.
+    const instant = new Date('2026-08-22T17:00:00Z');
+    expect(isEveningIn('Europe/Berlin', 4, instant)).toBe(true);
+    expect(isEveningIn('America/Los_Angeles', 4, instant)).toBe(false);
   });
 });

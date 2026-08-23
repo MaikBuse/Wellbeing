@@ -6,6 +6,7 @@ import {
   getDailyLogJoints,
   getDayMeals,
   getStandaloneSymptoms,
+  loggedDayCount,
 } from '@/db/queries/day';
 import { frequentFoodsForSlot, recentFoods } from '@/db/queries/foods';
 import { menstrualEventsForDay } from '@/db/queries/analysis';
@@ -22,7 +23,14 @@ import {
   loadNutrition,
   nutritionMilestoneInput,
 } from '@/services/nutrition/loader';
+import {
+  DENSE_FOOD_WINDOW_DAYS,
+  nutrientDenseOwnFoods,
+} from '@/db/queries/nutrition';
+import { mascotBond, mascotMoodForDay } from '@/services/nutrition/mascot';
+import { rankNextStep } from '@/services/nutrition/next-step';
 import { DayGoals } from '@/components/nutrition/day-goals';
+import { MascotView } from '@/components/mascot/mascot-view';
 import { Card, CardHeader, CardMeta, CardTitle } from '@/components/ui/card';
 import { SectionLabel } from '@/components/ui/section-label';
 import { DailyLogForm } from '@/components/daily/daily-log-form';
@@ -42,8 +50,10 @@ import {
   type OnsetLagKey,
 } from '@/lib/scales';
 import {
+  addDays,
   daysBetween,
   isBeforeDayBoundary,
+  isEveningIn,
   timeOfDayOf,
   todayLogDate,
   type LogDate,
@@ -83,6 +93,7 @@ export async function DayView({ logDate }: { logDate: LogDate }) {
     cycleEvents,
     nutrition,
     progress,
+    loggedDays,
   ] = await Promise.all([
     getDayMeals(user.id, logDate),
     getDailyLog(user.id, logDate),
@@ -114,6 +125,11 @@ export async function DayView({ logDate }: { logDate: LogDate }) {
           )
         )
       : Promise.resolve(null),
+    // Lifetime distinct days, for the mascot's bond. One indexed count, and
+    // only for today — a dated day is not where a companion belongs.
+    offsetDays === 0 && settings.showMascot
+      ? loggedDayCount(user.id)
+      : Promise.resolve(0),
   ]);
 
   const selectedJoints = dailyLog ? await getDailyLogJoints(dailyLog.id) : [];
@@ -191,6 +207,45 @@ export async function DayView({ logDate }: { logDate: LogDate }) {
     ])
   );
 
+  /*
+   * The mascot. Nothing here decides anything about the food — `mascotMoodForDay`
+   * reads verdicts that `coverage.ts` and `score.ts` already made, which is what
+   * keeps the figure from calling a thinly recorded day a bad one.
+   *
+   * Gated on the switch AND on there being an acknowledged profile: without
+   * targets there is nothing to have a mood about.
+   */
+  const mascot =
+    settings.showMascot && nutrition?.today_ && nutrition.blocked === null
+      ? mascotMoodForDay({
+          day: nutrition.today_,
+          blocked: nutrition.blocked,
+          priority: DAY_PRIORITY,
+        })
+      : null;
+
+  /*
+   * The suggestion, and only when there is a provable gap to close.
+   *
+   * Sequential after `loadNutrition` because the nutrient it is about IS that
+   * read's result. It costs one aggregate on the days the mascot is curious and
+   * nothing on the days it is happy, quiet or watching a limit.
+   */
+  const mascotStep =
+    mascot?.focus?.kind === 'gap'
+      ? rankNextStep(
+          mascot.focus,
+          await nutrientDenseOwnFoods(user.id, mascot.focus.key, {
+            sinceLogDate: addDays(today, -DENSE_FOOD_WINDOW_DAYS),
+          })
+        )
+      : null;
+
+  // A closing line reads in the past tense, so it waits until the day is one.
+  const isEvening =
+    offsetDays === 0 &&
+    isEveningIn(settings.timeZone, settings.dayStartHour);
+
   const allItems = meals.flatMap((meal) => meal.items);
   const dayTotals = sumNutrients(
     allItems.map((item) => ({
@@ -242,6 +297,17 @@ export async function DayView({ logDate }: { logDate: LogDate }) {
         fatigue={dailyLog?.fatigue ?? null}
         wellbeing={dailyLog?.wellbeing ?? null}
         isFlare={dailyLog?.isFlare ?? false}
+        mascot={
+          mascot ? (
+            <MascotView
+              state={mascot}
+              step={mascotStep}
+              scope="day"
+              variant="stage"
+              bond={mascotBond(loggedDays)}
+            />
+          ) : null
+        }
         goals={
           nutrition?.today_ && nutrition.blocked === null ? (
             <DayGoals
@@ -258,6 +324,22 @@ export async function DayView({ logDate }: { logDate: LogDate }) {
       {/* Anchor targets for the "noch offen" chips in the streak hero. */}
       <section id="mahlzeiten" className="scroll-mt-16">
         <SectionLabel className="mb-3">Mahlzeiten</SectionLabel>
+        {/*
+         * Deliberately here and not inside the picker. `quickAddFood` already
+         * calls `revalidateDay()` and '/' is in the DAY set, so this line is
+         * recomputed on the server after every chip tap — without a single prop
+         * threaded through five client components, and without making the
+         * three-tap path a millisecond slower.
+         */}
+        {mascot ? (
+          <MascotView
+            state={mascot}
+            step={mascotStep}
+            scope="meal"
+            variant="whisper"
+            className="mb-3"
+          />
+        ) : null}
         <ol>
           {MEAL_SLOT_ORDER.map((slot, index) => (
             <MealSlotSection
@@ -320,6 +402,18 @@ export async function DayView({ logDate }: { logDate: LogDate }) {
           trackCycle={settings.trackCycle}
           cycleEvents={cycleEvents}
         />
+        {/* The closing line, only once the day can be spoken about in the past
+         * tense. `isEveningIn` is read on the server; the clock has no business
+         * in a client render. */}
+        {mascot && isEvening ? (
+          <MascotView
+            state={mascot}
+            step={null}
+            scope="close"
+            variant="whisper"
+            className="mt-3"
+          />
+        ) : null}
       </div>
 
       <Card variant="sunken">

@@ -1,4 +1,4 @@
-import { and, asc, eq, gte, isNotNull, lte, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gte, isNotNull, isNull, lte, sql } from 'drizzle-orm';
 import type { PgColumn } from 'drizzle-orm/pg-core';
 import { db } from '../index';
 import {
@@ -14,6 +14,7 @@ import {
 } from '../schema';
 import {
   CATALOG_NUTRIENTS,
+  CATALOG_UNIT_FACTOR,
   NUTRIENT_META,
   SNAPSHOT_NUTRIENTS,
   type NutrientKey,
@@ -323,4 +324,114 @@ export async function flareDays(
       )
     );
   return new Set(rows.map((row) => row.logDate as LogDate));
+}
+
+/*
+ * Per-100 columns, which are NOT the columns `columnFor` resolves.
+ *
+ * `NUTRIENT_META` points the eight snapshot nutrients at `meal_item` — an
+ * absolute amount for one logged portion. Ranking foods by density needs the
+ * per-100 value instead, and for those eight it lives on `food` itself. The
+ * catalog nutrients are already per 100, so they resolve to the same column.
+ *
+ * `src/db/queries/__tests__/per100.test.ts` asserts every name here exists on
+ * the drizzle table, so a typo fails a test rather than selecting nothing.
+ */
+const foodColumns = foods as unknown as Record<string, PgColumn>;
+
+const SNAPSHOT_PER100_COLUMN: Record<string, string> = {
+  energy: 'kcal100',
+  protein: 'protein100',
+  fat: 'fat100',
+  satFat: 'satFat100',
+  carbs: 'carbs100',
+  sugar: 'sugar100',
+  fiber: 'fiber100',
+  salt: 'salt100',
+};
+
+export function per100ColumnFor(key: NutrientKey): PgColumn {
+  const source = NUTRIENT_META[key].source;
+  if (source.kind === 'catalog') return catalogColumns[source.column];
+  if (source.kind === 'snapshot') {
+    const column = SNAPSHOT_PER100_COLUMN[key];
+    if (!column) throw new Error(`Nutrient ${key} has no per-100 column`);
+    return foodColumns[column];
+  }
+  throw new Error(`Nutrient ${key} has no per-100 column`);
+}
+
+export type DenseFoodRow = {
+  foodId: string;
+  name: string;
+  brand: string | null;
+  /** Per 100 g, already in the nutrient's own unit. */
+  per100: number;
+  defaultPortionGrams: number | null;
+  /** How often this food appeared in the user's own meals in the window. */
+  uses: number;
+};
+
+/** How far back "out of her own repertoire" reaches. */
+export const DENSE_FOOD_WINDOW_DAYS = 60;
+
+/**
+ * The foods SHE already eats that carry the most of one nutrient.
+ *
+ * Ranked by what one portion actually contributes, not by the per-100 value: a
+ * spice with 900 mg of calcium per 100 g wins every density contest and closes
+ * no gap, because nobody eats 100 g of it.
+ *
+ * Scoped through `meal.user_id`, and ranked by the user's OWN meal count rather
+ * than by `food.use_count` — that column counts every account since the
+ * catalog became shared, and CLAUDE.md keeps personal ranking personal.
+ *
+ * `max()` rather than a bare column because the nutrient value may sit on
+ * `food_catalog`, which is not functionally dependent on `food.id` as far as
+ * Postgres is concerned. It is constant within the group either way.
+ */
+export async function nutrientDenseOwnFoods(
+  userId: string,
+  key: NutrientKey,
+  options: { sinceLogDate: LogDate; limit?: number }
+): Promise<DenseFoodRow[]> {
+  const column = per100ColumnFor(key);
+  const per100 = sql<number>`max(${column})`;
+  const perPortion = sql`max(${column}) * coalesce(${foods.defaultPortionGrams}, 100) / 100`;
+
+  const rows = await db
+    .select({
+      foodId: foods.id,
+      name: foods.name,
+      brand: foods.brand,
+      per100,
+      defaultPortionGrams: foods.defaultPortionGrams,
+      uses: sql<number>`count(*)`,
+    })
+    .from(mealItems)
+    .innerJoin(meals, eq(meals.id, mealItems.mealId))
+    .innerJoin(foods, eq(foods.id, mealItems.foodId))
+    .leftJoin(foodCatalog, eq(foodCatalog.id, foods.blsCatalogId))
+    .where(
+      and(
+        eq(meals.userId, userId),
+        gte(meals.logDate, options.sinceLogDate),
+        isNull(foods.archivedAt)
+      )
+    )
+    .groupBy(foods.id)
+    // A food with no measured value for this nutrient is not a food with zero.
+    .having(sql`max(${column}) > 0`)
+    .orderBy(desc(perPortion), desc(sql`count(*)`), asc(foods.name))
+    .limit(options.limit ?? 3);
+
+  const factor = CATALOG_UNIT_FACTOR[key] ?? 1;
+  return rows.map((row) => ({
+    foodId: row.foodId,
+    name: row.name,
+    brand: row.brand,
+    per100: Number(row.per100) * factor,
+    defaultPortionGrams: row.defaultPortionGrams,
+    uses: Number(row.uses),
+  }));
 }

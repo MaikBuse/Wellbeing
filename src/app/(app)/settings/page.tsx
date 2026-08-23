@@ -8,6 +8,11 @@ import { Button } from '@/components/ui/button';
 import { Card, CardHeader, CardMeta, CardTitle } from '@/components/ui/card';
 import { PageHeader } from '@/components/ui/page-header';
 import { InstallPrompt } from '@/components/pwa/install-prompt';
+import {
+  ASSET_ATTRIBUTION,
+  HAS_ARTWORK,
+} from '@/components/mascot/rive-asset';
+import { MascotSwitch } from '@/components/settings/mascot-switch';
 import { TrackWeightSwitch } from '@/components/settings/track-weight-switch';
 import { TraceExposureSwitch } from '@/components/settings/trace-exposure-switch';
 
@@ -50,8 +55,9 @@ export default async function SettingsPage() {
 
       <Card>
         <CardTitle>Erfassen</CardTitle>
-        <div className="mt-3">
+        <div className="mt-3 space-y-4">
           <TrackWeightSwitch enabled={settings.trackWeight} />
+          <MascotSwitch enabled={settings.showMascot} />
         </div>
       </Card>
 
@@ -113,6 +119,25 @@ export default async function SettingsPage() {
           beiden Quellen und werden lokal aus Regeln abgeleitet.
         </CardMeta>
       </Card>
+
+      {/*
+       * Only once the artwork is actually in the repository. Crediting a file
+       * that is not shipped would be a citation of nothing, and CC BY asks for
+       * the credit to accompany the work.
+       */}
+      {HAS_ARTWORK ? (
+        <Card>
+          <CardTitle>Illustration</CardTitle>
+          <CardMeta className="mt-1">
+            Der Begleiter basiert auf «{ASSET_ATTRIBUTION.title}» von{' '}
+            {ASSET_ATTRIBUTION.creator}, lizenziert unter{' '}
+            {ASSET_ATTRIBUTION.licence} ({ASSET_ATTRIBUTION.licenceUrl}). Quelle:{' '}
+            {ASSET_ATTRIBUTION.source}. Bearbeitet:{' '}
+            {ASSET_ATTRIBUTION.changesDe} Die Namensnennung ist
+            Lizenzbedingung, keine Höflichkeit.
+          </CardMeta>
+        </Card>
+      ) : null}
 
       <Card>
         <CardTitle>Was diese App nicht ist</CardTitle>
