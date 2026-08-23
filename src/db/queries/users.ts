@@ -12,6 +12,8 @@ export type UserSettings = {
   countTraceExposure: boolean;
   /** Whether the mascot appears. Independent of the target framing. */
   showMascot: boolean;
+  /** Whether the figure stands in the corner. Narrower than `showMascot`. */
+  showMascotFigure: boolean;
 };
 
 /**
@@ -71,6 +73,7 @@ export const getUserSettings = cache(async function getUserSettings(
       trackWeight: true,
       countTraceExposure: false,
       showMascot: true,
+      showMascotFigure: true,
     };
   }
   return {
@@ -80,5 +83,6 @@ export const getUserSettings = cache(async function getUserSettings(
     trackWeight: row.trackWeight,
     countTraceExposure: row.countTraceExposure,
     showMascot: row.showMascot,
+    showMascotFigure: row.showMascotFigure,
   };
 });

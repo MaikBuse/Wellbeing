@@ -25,3 +25,8 @@ export const updateTraceExposureSchema = z.object({
 export const updateMascotSchema = z.object({
   showMascot: z.boolean(),
 });
+
+/** Whether the figure stands in the corner. Cosmetic in the same way. */
+export const updateMascotFigureSchema = z.object({
+  showMascotFigure: z.boolean(),
+});

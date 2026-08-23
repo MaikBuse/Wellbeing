@@ -2337,6 +2337,21 @@ console.log('\nnährstoff-ziele');
     stored.showMascot === true,
     String(stored.showMascot)
   );
+  /*
+   * The narrower flag, on both branches for the same reason: the figure is on
+   * unless someone turns it off, and a default that is only right in the
+   * mapping or only right in the column is the failure this pair catches.
+   */
+  check(
+    'the figure is on for a user without a settings row',
+    defaults.showMascotFigure === true,
+    String(defaults.showMascotFigure)
+  );
+  check(
+    'and its column carries the same default',
+    stored.showMascotFigure === true,
+    String(stored.showMascotFigure)
+  );
 
   // --- Profile versioning --------------------------------------------------
   await db.insert(userNutritionProfiles).values({

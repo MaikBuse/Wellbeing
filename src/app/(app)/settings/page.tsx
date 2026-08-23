@@ -10,6 +10,7 @@ import { PageHeader } from '@/components/ui/page-header';
 import { InstallPrompt } from '@/components/pwa/install-prompt';
 import { ASSET_ATTRIBUTION } from '@/components/mascot/rive-asset';
 import { HAS_RIVE } from '@/components/mascot/artwork';
+import { MascotFigureSwitch } from '@/components/settings/mascot-figure-switch';
 import { MascotSwitch } from '@/components/settings/mascot-switch';
 import { TrackWeightSwitch } from '@/components/settings/track-weight-switch';
 import { TraceExposureSwitch } from '@/components/settings/trace-exposure-switch';
@@ -50,6 +51,16 @@ export default async function SettingsPage() {
         <div className="mt-3 space-y-4">
           <TrackWeightSwitch enabled={settings.trackWeight} />
           <MascotSwitch enabled={settings.showMascot} />
+          {/* Indented under the switch above, because it only means anything
+            * while that one is on. The header carries the same toggle. Gone
+            * entirely without the asset: there is no figure to have an opinion
+            * about, and the header shows no button either. */}
+          {HAS_RIVE ? (
+            <MascotFigureSwitch
+              enabled={settings.showMascotFigure}
+              parentEnabled={settings.showMascot}
+            />
+          ) : null}
         </div>
       </Card>
 

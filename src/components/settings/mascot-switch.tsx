@@ -6,12 +6,16 @@ import { setShowMascot } from '@/actions/settings';
 import { Switch } from '@/components/ui/switch';
 
 /**
- * Turns the mascot off.
+ * Turns the companion off — the reading of the day AND the drawing of it.
  *
  * Worth its own flag: everything else on the nutrient screens is a number, and
- * a number that is inconvenient is still information. A character with a face
- * is the one element here that some days is simply not wanted, and there would
- * otherwise be no way to say so.
+ * a number that is inconvenient is still information. A companion that comments
+ * on them is the one element here that some days is simply not wanted, and
+ * there would otherwise be no way to say so.
+ *
+ * `MascotFigureSwitch` sits under this one and takes away only the figure. So
+ * the subtitle here has to describe the whole thing rather than the drawing —
+ * it used to say "Die Figur", which is now the name of the row below.
  *
  * Optimistic, like the other two switches — one that lags reads as broken.
  */
@@ -32,7 +36,8 @@ export function MascotSwitch({ enabled }: { enabled: boolean }) {
       <span className="min-w-0">
         <span className="block text-sm font-medium text-fg">Begleiter zeigen</span>
         <span className="block text-xs text-muted">
-          Die Figur, die den Tag einordnet und einen nächsten Schritt vorschlägt.
+          Ordnet den Tag ein und schlägt einen nächsten Schritt vor — als Satz
+          im Tagesüberblick und als Figur in der Ecke.
         </span>
       </span>
       <Switch

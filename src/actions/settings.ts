@@ -3,8 +3,13 @@
 import { requireUserForAction } from '@/auth.helpers';
 import { db } from '@/db';
 import { userSettings } from '@/db/schema';
-import { revalidateAnalysisSettings, revalidateSettings } from '@/lib/revalidate';
 import {
+  revalidateAnalysisSettings,
+  revalidateChrome,
+  revalidateSettings,
+} from '@/lib/revalidate';
+import {
+  updateMascotFigureSchema,
   updateMascotSchema,
   updateSettingsSchema,
   updateTraceExposureSchema,
@@ -92,10 +97,12 @@ export async function setCountTraceExposure(input: {
 }
 
 /**
- * Toggles the mascot.
+ * Toggles the companion — the figure AND the sentences that go with it.
  *
- * `revalidateSettings` and not something narrower: the figure appears on the day
- * screen and on the progress screen, and both are inside the DAY set.
+ * `revalidateChrome` and not `revalidateSettings`: this used to be true of the
+ * day and progress screens only, and it was written down that way. The figure
+ * has since moved into `(app)/layout.tsx`, so the flag now changes what every
+ * route in the group renders.
  */
 export async function setShowMascot(input: {
   showMascot: boolean;
@@ -118,7 +125,44 @@ export async function setShowMascot(input: {
       set: { showMascot: parsed.data.showMascot, updatedAt: new Date() },
     });
 
-  revalidateSettings();
+  revalidateChrome();
+
+  return { ok: true };
+}
+
+/**
+ * Toggles only the figure in the corner.
+ *
+ * Separate from `setShowMascot` because the two wishes are different: this one
+ * keeps the reading of the day and takes away the drawing. It is what the
+ * header button writes, so it is reachable from every screen — hence
+ * `revalidateChrome` here too, and hence the list in `revalidate.ts`.
+ */
+export async function setShowMascotFigure(input: {
+  showMascotFigure: boolean;
+}): Promise<ActionResult> {
+  const user = await requireUserForAction();
+
+  const parsed = updateMascotFigureSchema.safeParse(input);
+  if (!parsed.success) {
+    return {
+      ok: false,
+      error: parsed.error.issues[0]?.message ?? 'Eingabe ungültig',
+    };
+  }
+
+  await db
+    .insert(userSettings)
+    .values({ userId: user.id, showMascotFigure: parsed.data.showMascotFigure })
+    .onConflictDoUpdate({
+      target: userSettings.userId,
+      set: {
+        showMascotFigure: parsed.data.showMascotFigure,
+        updatedAt: new Date(),
+      },
+    });
+
+  revalidateChrome();
 
   return { ok: true };
 }

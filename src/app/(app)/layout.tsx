@@ -1,6 +1,9 @@
 import { Suspense } from 'react';
 import { requireUser } from '@/auth.helpers';
+import { getUserSettings } from '@/db/queries/users';
+import { HAS_RIVE } from '@/components/mascot/artwork';
 import { MascotDock } from '@/components/mascot/mascot-dock';
+import { MascotToggle } from '@/components/mascot/mascot-toggle';
 import { AppHeader } from '@/components/nav/app-header';
 import { BottomNav } from '@/components/nav/bottom-nav';
 import { RefreshOnResume } from '@/components/pwa/refresh-on-resume';
@@ -17,11 +20,37 @@ export default async function AppLayout({
 }: {
   children: React.ReactNode;
 }) {
-  await requireUser();
+  /*
+   * `requireUser` and NOT `requireUserWithSettings`: this is the authentication
+   * boundary and it has to REDIRECT. The helper builds on
+   * `requireUserForAction`, which throws — right for a server action, wrong for
+   * a page someone opened while signed out.
+   */
+  const user = await requireUser();
+
+  /*
+   * One indexed row, and `getUserSettings` is wrapped in `cache()`, so
+   * `MascotDock` below hits the cache rather than the database. The read moves
+   * in front of the paint rather than being added: what changes is that the
+   * shell now waits on it, which a header button appearing a moment after the
+   * header would be a worse trade for.
+   */
+  const settings = await getUserSettings(user.id);
 
   return (
     <div className="mx-auto flex min-h-dvh max-w-lg flex-col">
-      <AppHeader />
+      {/*
+       * The one action in the header, and only when there is something for it
+       * to do: no toggle for a companion that is switched off entirely, and
+       * none for a drawing that is not in the repository.
+       */}
+      <AppHeader
+        action={
+          settings.showMascot && HAS_RIVE ? (
+            <MascotToggle enabled={settings.showMascotFigure} />
+          ) : null
+        }
+      />
       {/* pb-24 clears the fixed tab bar. */}
       <div className="flex-1 pb-24">{children}</div>
       {/* Content dissolves into the page colour behind the translucent tab bar.

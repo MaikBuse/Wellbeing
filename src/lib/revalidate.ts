@@ -90,6 +90,55 @@ export function revalidateSettings(): void {
 }
 
 /**
+ * Every page in the (app) group.
+ *
+ * For a flag the LAYOUT reads rather than a page — the header action, the tab
+ * bar, the companion in the corner. `revalidateSettings` was used for the
+ * mascot flag while the figure lived on two screens; since it moved into
+ * `(app)/layout.tsx` it stands on all of them, and a set that stops at DAY +
+ * /settings silently omits /foods, /medications, /scan and everything under
+ * /analyse.
+ *
+ * Nothing breaks today, because the `x-action-revalidated` signal is
+ * path-independent and re-renders whichever route is open. The list matters for
+ * the reason given at the top of this file: it has to still be right the day a
+ * `use cache` is introduced.
+ *
+ * Exported so `__tests__/revalidate.test.ts` can compare it against the route
+ * tree. A hand-kept list of every route is exactly the kind of thing that
+ * drifts, and drift is what this module exists to prevent.
+ *
+ * Pages only. `/analyse/export` is a `route.ts` — nothing renders it, so there
+ * is nothing about it to revalidate.
+ */
+export const CHROME = [
+  '/',
+  '/day',
+  '/day/[date]',
+  '/progress',
+  '/nutrition',
+  '/nutrition/[nutrient]',
+  '/foods',
+  '/foods/[id]',
+  '/foods/new',
+  '/medications',
+  '/medications/new',
+  '/scan',
+  '/analyse',
+  '/analyse/faktoren',
+  '/analyse/faktoren/[key]',
+  '/analyse/muster',
+  '/analyse/bericht',
+  '/settings',
+  '/settings/nutrition-goals',
+  '/settings/nutrition-goals/profile',
+] as const;
+
+export function revalidateChrome(): void {
+  expire(CHROME);
+}
+
+/**
  * The nutrient profile, the acknowledgement, a target override.
  *
  * Each of these changes what a target IS, so it makes every screen that prints

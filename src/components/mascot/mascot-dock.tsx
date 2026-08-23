@@ -32,6 +32,10 @@ import { HAS_RIVE } from './artwork';
 export async function MascotDock() {
   const { user, settings } = await requireUserWithSettings();
   if (!settings.showMascot) return null;
+  // The narrower switch, and the reason it is checked here rather than inside
+  // the frame: `loadCompanion` below is a day's worth of reads, and with the
+  // figure off nobody is going to look at the answer.
+  if (!settings.showMascotFigure) return null;
   if (!HAS_RIVE) return null;
 
   const today = todayLogDate(settings.timeZone, settings.dayStartHour);

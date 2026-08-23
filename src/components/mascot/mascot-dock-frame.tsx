@@ -11,6 +11,12 @@ import {
 import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet';
 import { useReducedMotion } from '@/lib/use-media-query';
 import { MascotCanvas } from './mascot-canvas';
+import {
+  isLeaving,
+  leavingServerSnapshot,
+  setLeaving,
+  subscribeLeaving,
+} from './dock-visibility';
 import type { MascotCue } from './rive-asset';
 import type { MascotMood } from '@/services/nutrition/mascot';
 
@@ -25,6 +31,14 @@ import type { MascotMood } from '@/services/nutrition/mascot';
  * That only works from this exact layer: above the scrim (z-20), which would
  * otherwise wash him into the background, and below the bar (z-30), which has
  * to be the thing doing the blurring. No other z-index produces the effect.
+ *
+ * SIDEWAYS, THE BOX HANGS OVER THE EDGE. `-right-4` looks wrong and is not: the
+ * drawing does not fill its box. Measured off the canvas, the figure's ink sits
+ * 29 px inside the 144 px square on each side, because that margin is inside
+ * the artboard and no CSS can reach it. So a positive inset would be added to
+ * a gap that is already there. Pulling the box 16 px past the column edge
+ * spends part of that margin instead — the ink lands about 13 px from the edge,
+ * nothing of the figure is clipped, and the tap target keeps 128 of its 144 px.
  *
  * The band is zero-height and centred on the `max-w-lg` column, the same trick
  * `bottom-nav.tsx` uses for its items: on a wide screen he stands at the edge of
@@ -79,6 +93,16 @@ export function MascotDockFrame({
   const reduced = useReducedMotion();
   const [ready, setReady] = useState(false);
   const [tucked, setTucked] = useState(false);
+  /*
+   * Asked to leave by the header button, which writes a column — so the tree
+   * re-renders him away a beat after the tap. This is how he walks off in that
+   * beat instead of blinking out. See `dock-visibility.ts`.
+   */
+  const leaving = useSyncExternalStore(
+    subscribeLeaving,
+    isLeaving,
+    leavingServerSnapshot
+  );
   const silent = useSyncExternalStore(subscribeQuiet, () => isQuiet(logDate), () => false);
   const [cue, setCue] = useState<MascotCue | null>(null);
   const [cueToken, setCueToken] = useState(0);
@@ -155,7 +179,16 @@ export function MascotDockFrame({
     };
   }, [reduced]);
 
-  const hidden = !ready || tucked;
+  /*
+   * Cleared on mount, not only by the toggle: if the server render brings him
+   * back for any other reason, a flag left standing would hold him behind the
+   * bar with nothing on screen to release him.
+   */
+  useEffect(() => {
+    setLeaving(false);
+  }, []);
+
+  const hidden = !ready || tucked || leaving;
 
   // The drawing is the whole depiction, so without it there is no dock at all.
   if (reduced) return null;
@@ -166,7 +199,7 @@ export function MascotDockFrame({
       className="pointer-events-none fixed inset-x-0 z-[25] mx-auto max-w-lg print:hidden [@media(max-height:600px)]:hidden"
     >
       <div
-        className={`absolute -bottom-[39px] right-3 flex items-end justify-end gap-2 transition-transform duration-450 ease-out-soft ${
+        className={`absolute -bottom-[39px] -right-4 flex items-end justify-end gap-2 transition-transform duration-450 ease-out-soft ${
           hidden ? 'pointer-events-none' : 'pointer-events-auto'
         }`}
         style={{ transform: hidden ? 'translateY(120%)' : 'none' }}

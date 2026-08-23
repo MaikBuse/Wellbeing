@@ -56,6 +56,16 @@ export const userSettings = pgTable(
      * on them are two different wishes, and there is no other way to say so.
      */
     showMascot: boolean('show_mascot').notNull().default(true),
+    /**
+     * Whether the FIGURE stands in the corner.
+     *
+     * The finer half of the question above. `show_mascot` is the companion —
+     * turn it off and the sentences on the day and progress screens go with it.
+     * This one is only the drawing: off, the corner is empty and the reading of
+     * the day stays where it is readable, as text. Wanting the verdict without
+     * a cartoon on top of it had no way to be said before.
+     */
+    showMascotFigure: boolean('show_mascot_figure').notNull().default(true),
     updatedAt: updatedAt(),
   },
   (t) => [
