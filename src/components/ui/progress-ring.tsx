@@ -11,6 +11,7 @@ export function ProgressRing({
   value,
   max,
   label,
+  suffix,
   size = 48,
   strokeWidth = 4,
   className,
@@ -19,6 +20,11 @@ export function ProgressRing({
   value: number;
   max: number;
   label: string;
+  /**
+   * Unit printed after the figure, e.g. '%'. Without it a ring counting to 100
+   * reads as a tally — "18" beside a flame looks like eighteen days.
+   */
+  suffix?: string;
   size?: number;
   strokeWidth?: number;
 }) {
@@ -64,8 +70,16 @@ export function ProgressRing({
         />
       </svg>
       <span className="absolute inset-0 flex items-center justify-center">
-        <span className="num text-sm font-semibold text-fg">{value}</span>
-        <span className="sr-only"> von {max} — {label}</span>
+        <span className="num text-sm font-semibold text-fg">
+          {value}
+          {suffix ? (
+            <span className="text-[0.65em] font-medium">{suffix}</span>
+          ) : null}
+        </span>
+        <span className="sr-only">
+          {' '}
+          von {max} — {label}
+        </span>
       </span>
     </div>
   );

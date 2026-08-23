@@ -13,9 +13,11 @@ import { ProgressRing } from '@/components/ui/progress-ring';
 import { ScoreChips } from '@/components/ui/score-chips';
 import {
   BRISTOL_SCALE,
+  CORE_DAILY_FIELDS,
   SLEEP_CHIPS,
   STIFFNESS_CHIPS,
   bristolGroup,
+  countCoreDailyFields,
 } from '@/lib/scales';
 import { cn } from '@/lib/utils';
 
@@ -92,13 +94,10 @@ export function DailyLogForm({
     });
   }
 
-  const filled = [
-    values.jointPain,
-    values.morningStiffnessMinutes,
-    values.fatigue,
-    values.sleepQuality,
-    values.stress,
-  ].filter((value) => value !== null).length;
+  // The same five fields the completeness score calls the "Kernwerte". Counted
+  // through the shared helper so the ring here and the ring on the progress
+  // screen can never disagree about what a filled day is.
+  const filled = countCoreDailyFields(values);
 
   return (
     <Card>
@@ -111,12 +110,18 @@ export function DailyLogForm({
                 gespeichert
               </span>
             ) : null}
-            <ProgressRing value={filled} max={5} label="Kernwerte erfasst" />
+            <ProgressRing
+              value={filled}
+              max={CORE_DAILY_FIELDS.length}
+              label="Kernwerte erfasst"
+            />
           </div>
         }
       >
         <CardTitle>Tagescheck</CardTitle>
-        <CardMeta>{filled} von 5 Kernwerten erfasst</CardMeta>
+        <CardMeta>
+          {filled} von {CORE_DAILY_FIELDS.length} Kernwerten erfasst
+        </CardMeta>
       </CardHeader>
 
       <div className="space-y-5">

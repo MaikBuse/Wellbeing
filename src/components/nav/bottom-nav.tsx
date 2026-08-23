@@ -13,7 +13,16 @@ type NavItem = {
 };
 
 const ITEMS: NavItem[] = [
-  { href: '/', label: 'Heute', icon: Home },
+  {
+    href: '/',
+    label: 'Heute',
+    icon: Home,
+    // /progress is reached from the streak card on "Heute" and has no tab of
+    // its own — a sixth target would squeeze all six below comfortable thumb
+    // width, which is the same reason "Tage" was folded into "Analyse". Without
+    // this the indicator would simply vanish on the way there.
+    alsoMatches: ['/progress'],
+  },
   // Replaces the old "Tage" tab rather than adding a sixth: /day never had a
   // list, only a redirect to yesterday, and the calendar heatmap inside the
   // analysis IS that list — a better one, because it shows the data and not just
@@ -45,9 +54,13 @@ export function BottomNav() {
   const pathname = usePathname();
 
   const activeIndex = ITEMS.findIndex((item) => {
-    if (item.href === '/') return pathname === '/';
-    if (pathname.startsWith(item.href)) return true;
-    return (item.alsoMatches ?? []).some((prefix) => pathname.startsWith(prefix));
+    // '/' must match exactly — startsWith would make it swallow every route.
+    // Its extra routes still go through alsoMatches like everyone else's.
+    if (item.href !== '/' && pathname.startsWith(item.href)) return true;
+    if (item.href === '/' && pathname === '/') return true;
+    return (item.alsoMatches ?? []).some((prefix) =>
+      pathname.startsWith(prefix)
+    );
   });
 
   return (

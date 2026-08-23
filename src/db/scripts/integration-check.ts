@@ -29,6 +29,7 @@ import {
   symptomEntrySymptoms,
   symptomTypes,
   userSettings,
+  achievements,
 } from '@/db/schema';
 import { searchCatalog } from '@/db/queries/foods';
 import { seedLookups } from '@/db/seed/run';
@@ -50,6 +51,13 @@ import {
   scheduleVersionsRange,
   symptomEntryRange,
 } from '@/db/queries/analysis';
+import {
+  firstActivityLogDate,
+  mealSlotDays,
+  symptomDays,
+} from '@/db/queries/progress';
+import { loadProgress } from '@/services/progress/loader';
+import { computeStreak } from '@/services/progress/streak';
 import { assembleFacts } from '@/services/analysis/facts';
 import { runAnalysisForUser } from '@/services/analysis/loader';
 import {
@@ -1497,6 +1505,178 @@ console.log('\nanalysis');
   await db.delete(mealItems).where(eq(mealItems.mealId, mealB.id));
   await db.delete(foodTags).where(eq(foodTags.foodId, blsFoodId));
   await db.delete(foodTags).where(eq(foodTags.foodId, offFoodId));
+}
+
+// --- Progress: streak, coverage, achievements -----------------------------
+//
+// The two things that can only be checked here: that the day-coverage queries
+// put a late-night meal on the right logical day, and that the achievement
+// unique index actually makes a second acknowledgement a no-op.
+console.log('\nfortschritt');
+{
+  const anchor = '2026-06-10';
+  const dates = eachLogDate(anchor, addDays(anchor, 3));
+
+  // A dinner at 23:30 local on the anchor day, and a second one at 01:00 the
+  // following night — which belongs to the SAME logical day.
+  const lateEvening = new Date('2026-06-10T21:30:00Z'); // 23:30 Berlin
+  const afterMidnight = new Date('2026-06-10T23:00:00Z'); // 01:00 Berlin
+
+  for (const [slot, occurredAt] of [
+    ['dinner', lateEvening],
+    ['snack', afterMidnight],
+  ] as const) {
+    const [row] = await db
+      .insert(meals)
+      .values({
+        userId: user.id,
+        slot,
+        occurredAt,
+        logDate: toLogDate(occurredAt, TZ, START),
+      })
+      .returning({ id: meals.id });
+    await db
+      .insert(mealItems)
+      .values({ mealId: row.id, foodId, quantity: 1, unit: 'g', grams: 100 });
+  }
+
+  await db
+    .insert(dailyLogs)
+    .values({ userId: user.id, logDate: anchor, jointPain: 4 })
+    .onConflictDoNothing();
+
+  const slotDays = await mealSlotDays(user.id, anchor, addDays(anchor, 3));
+  const onAnchor = slotDays
+    .filter((row) => row.logDate === anchor)
+    .map((row) => row.slot)
+    .sort();
+  check(
+    'a 23:30 and a 01:00 meal land on the same logical day',
+    onAnchor.join(',') === 'dinner,snack',
+    onAnchor.join(',')
+  );
+  check(
+    'no meal leaks onto the following day',
+    slotDays.every((row) => row.logDate === anchor),
+    slotDays.map((row) => row.logDate).join(',')
+  );
+
+  // An empty meal must not prop up a streak: the query joins meal_item.
+  const [emptyMeal] = await db
+    .insert(meals)
+    .values({
+      userId: user.id,
+      slot: 'lunch',
+      occurredAt: new Date('2026-06-11T10:00:00Z'),
+      logDate: addDays(anchor, 1),
+    })
+    .returning({ id: meals.id });
+  const afterEmpty = await mealSlotDays(user.id, anchor, addDays(anchor, 3));
+  check(
+    'a meal with no items does not count as food',
+    afterEmpty.every((row) => row.logDate === anchor)
+  );
+  await db.delete(meals).where(eq(meals.id, emptyMeal.id));
+
+  const first = await firstActivityLogDate(user.id);
+  check(
+    'first activity is not after the anchor',
+    first !== null && first <= anchor,
+    String(first)
+  );
+
+  const symptomOn = await symptomDays(user.id, anchor, addDays(anchor, 3));
+  check(
+    'symptom days query returns only its range',
+    symptomOn.every((day) => dates.includes(day)),
+    symptomOn.join(',')
+  );
+
+  // The streak over the real coverage of those four days: only the anchor has
+  // both a meal and a daily log, so exactly one day counts.
+  const streak = computeStreak(
+    dates.map((logDate) => ({
+      logDate,
+      slots: afterEmpty
+        .filter((row) => row.logDate === logDate)
+        .map((row) => row.slot),
+      hasDailyLog: logDate === anchor,
+      coreFilled: logDate === anchor ? 1 : 0,
+      hasWellbeing: false,
+      hasSymptom: false,
+    })),
+    anchor,
+    addDays(anchor, 3)
+  );
+  check(
+    'exactly the anchor day counts',
+    streak.countedDays === 1,
+    String(streak.countedDays)
+  );
+
+  // The full read path, against real rows.
+  const progress = await loadProgress(user.id, '2026-06-13');
+  check('progress loads', progress.window.length > 0);
+  check(
+    "today's completeness has all four blocks",
+    progress.todayCompleteness.blocks.length === 4,
+    String(progress.todayCompleteness.blocks.length)
+  );
+  // The medication block must track the actual plan, not a guess about it. So
+  // regenerate the due list the same way the loader does and assert the block
+  // agrees — including the case that matters, "nothing due" reading as not
+  // applicable rather than as nought per cent.
+  const dueThatDay = expandDueDoses(
+    await scheduleVersionsRange(user.id, '2026-06-13', '2026-06-13', [
+      'csdmard',
+      'bdmard',
+      'tsdmard',
+      'nsaid',
+      'steroid',
+      'analgesic',
+      'supplement',
+      'other',
+    ]),
+    '2026-06-13'
+  );
+  const medsBlock = progress.todayCompleteness.blocks.find(
+    (block) => block.key === 'meds'
+  );
+  check(
+    'the medication block is applicable exactly when a dose was due',
+    medsBlock !== undefined && medsBlock.applicable === dueThatDay.length > 0,
+    `due=${dueThatDay.length} applicable=${medsBlock?.applicable}`
+  );
+  check(
+    'the milestone catalogue is complete',
+    progress.milestones.length === 8,
+    String(progress.milestones.length)
+  );
+
+  // Acknowledging twice must be idempotent — a double tap or a second tab.
+  for (let i = 0; i < 2; i++) {
+    await db
+      .insert(achievements)
+      .values({ userId: user.id, key: 'streak_7', achievedOn: anchor })
+      .onConflictDoNothing();
+  }
+  const ackRows = await db
+    .select({ key: achievements.key })
+    .from(achievements)
+    .where(eq(achievements.userId, user.id));
+  check(
+    'acknowledging twice leaves one row',
+    ackRows.length === 1,
+    String(ackRows.length)
+  );
+
+  await expectReject('duplicate achievement rejected without the guard', () =>
+    db
+      .insert(achievements)
+      .values({ userId: user.id, key: 'streak_7', achievedOn: anchor })
+  );
+
+  await db.delete(achievements).where(eq(achievements.userId, user.id));
 }
 
 // Clean up. Meals have to go first: meal_item.food_id is deliberately

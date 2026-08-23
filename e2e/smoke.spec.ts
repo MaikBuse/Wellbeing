@@ -20,6 +20,16 @@ test('the analysis is behind the same auth boundary', async ({ page }) => {
   await expect(page).toHaveURL(/\/signin$/);
 });
 
+test('the progress screen is behind the same auth boundary', async ({
+  page,
+}) => {
+  // It walks the whole history and prints how many days were recorded, so an
+  // unauthenticated hit would leak the shape of someone's diary even without
+  // showing a single entry.
+  await page.goto('/progress');
+  await expect(page).toHaveURL(/\/signin$/);
+});
+
 test('the export is behind the auth boundary too', async ({ request }) => {
   // A route handler is not covered by the (app) layout, so it does its own
   // check — and it hands out a full health-data series if it does not.

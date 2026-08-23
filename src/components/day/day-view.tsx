@@ -15,10 +15,13 @@ import {
   intakesForDay,
 } from '@/db/queries/medication';
 import { expandDueDoses } from '@/services/medication/schedule';
+import { loadProgress } from '@/services/progress/loader';
 import { Card, CardHeader, CardMeta, CardTitle } from '@/components/ui/card';
 import { SectionLabel } from '@/components/ui/section-label';
 import { DailyLogForm } from '@/components/daily/daily-log-form';
 import { DayHeader } from '@/components/day/day-header';
+import { MilestoneCelebration } from '@/components/progress/milestone-celebration';
+import { StreakHero } from '@/components/progress/streak-hero';
 import { DaySummary } from '@/components/day/day-summary';
 import { MealSlotSection } from '@/components/meal/meal-slot-section';
 import { DueDoses, type DueDoseView } from '@/components/medication/due-doses';
@@ -60,6 +63,7 @@ export async function DayView({ logDate }: { logDate: LogDate }) {
     intakes,
     asNeeded,
     cycleEvents,
+    progress,
   ] = await Promise.all([
     getDayMeals(user.id, logDate),
     getDailyLog(user.id, logDate),
@@ -73,6 +77,10 @@ export async function DayView({ logDate }: { logDate: LogDate }) {
     settings.trackCycle
       ? menstrualEventsForDay(user.id, logDate)
       : Promise.resolve<string[]>([]),
+    // Only for today. A dated day is a record of what happened, not a place to
+    // be nudged about the streak — and skipping the load keeps the history
+    // screens as cheap as they were.
+    offsetDays === 0 ? loadProgress(user.id, logDate) : Promise.resolve(null),
   ]);
 
   const selectedJoints = dailyLog ? await getDailyLogJoints(dailyLog.id) : [];
@@ -176,6 +184,24 @@ export async function DayView({ logDate }: { logDate: LogDate }) {
         }
       />
 
+      {progress ? (
+        <>
+          {/* One at a time. Two badges in a row would turn a milestone into a
+           * queue to clear rather than a moment. */}
+          {progress.pending.length > 0 ? (
+            <MilestoneCelebration
+              milestoneKey={progress.pending[0].key}
+              title={progress.pending[0].title}
+              description={progress.pending[0].description}
+            />
+          ) : null}
+          <StreakHero
+            streak={progress.streak}
+            completeness={progress.todayCompleteness}
+          />
+        </>
+      ) : null}
+
       <DaySummary
         totals={dayTotals}
         itemCount={allItems.length}
@@ -185,7 +211,8 @@ export async function DayView({ logDate }: { logDate: LogDate }) {
         isFlare={dailyLog?.isFlare ?? false}
       />
 
-      <section>
+      {/* Anchor targets for the "noch offen" chips in the streak hero. */}
+      <section id="mahlzeiten" className="scroll-mt-16">
         <SectionLabel className="mb-3">Mahlzeiten</SectionLabel>
         <ol>
           {MEAL_SLOT_ORDER.map((slot, index) => (
@@ -210,42 +237,46 @@ export async function DayView({ logDate }: { logDate: LogDate }) {
         </ol>
       </section>
 
-      <DueDoses
-        doses={dueDoses}
-        asNeeded={asNeeded.map((medication) => ({
-          id: medication.id,
-          name: medication.name,
-          doseAmount: medication.doseAmount,
-          doseUnit: medication.doseUnit as DueDoseView['doseUnit'],
-        }))}
-        takenAsNeeded={takenAsNeeded}
-      />
+      <div id="medikamente" className="scroll-mt-16">
+        <DueDoses
+          doses={dueDoses}
+          asNeeded={asNeeded.map((medication) => ({
+            id: medication.id,
+            name: medication.name,
+            doseAmount: medication.doseAmount,
+            doseUnit: medication.doseUnit as DueDoseView['doseUnit'],
+          }))}
+          takenAsNeeded={takenAsNeeded}
+        />
+      </div>
 
-      <DailyLogForm
-        logDate={logDate}
-        values={{
-          jointPain: dailyLog?.jointPain ?? null,
-          morningStiffnessMinutes: dailyLog?.morningStiffnessMinutes ?? null,
-          fatigue: dailyLog?.fatigue ?? null,
-          wellbeing: dailyLog?.wellbeing ?? null,
-          isFlare: dailyLog?.isFlare ?? false,
-          sleepMinutes: dailyLog?.sleepMinutes ?? null,
-          sleepQuality: dailyLog?.sleepQuality ?? null,
-          stress: dailyLog?.stress ?? null,
-          activityMinutes: dailyLog?.activityMinutes ?? null,
-          bristolTypical: dailyLog?.bristolTypical ?? null,
-          weightKg: dailyLog?.weightKg ?? null,
-          note: dailyLog?.note ?? null,
-        }}
-        joints={joints.map((joint) => ({
-          key: joint.key,
-          labelDe: joint.labelDe,
-        }))}
-        selectedJoints={selectedJoints.map((joint) => joint.jointKey)}
-        trackWeight={settings.trackWeight}
-        trackCycle={settings.trackCycle}
-        cycleEvents={cycleEvents}
-      />
+      <div id="tagescheck" className="scroll-mt-16">
+        <DailyLogForm
+          logDate={logDate}
+          values={{
+            jointPain: dailyLog?.jointPain ?? null,
+            morningStiffnessMinutes: dailyLog?.morningStiffnessMinutes ?? null,
+            fatigue: dailyLog?.fatigue ?? null,
+            wellbeing: dailyLog?.wellbeing ?? null,
+            isFlare: dailyLog?.isFlare ?? false,
+            sleepMinutes: dailyLog?.sleepMinutes ?? null,
+            sleepQuality: dailyLog?.sleepQuality ?? null,
+            stress: dailyLog?.stress ?? null,
+            activityMinutes: dailyLog?.activityMinutes ?? null,
+            bristolTypical: dailyLog?.bristolTypical ?? null,
+            weightKg: dailyLog?.weightKg ?? null,
+            note: dailyLog?.note ?? null,
+          }}
+          joints={joints.map((joint) => ({
+            key: joint.key,
+            labelDe: joint.labelDe,
+          }))}
+          selectedJoints={selectedJoints.map((joint) => joint.jointKey)}
+          trackWeight={settings.trackWeight}
+          trackCycle={settings.trackCycle}
+          cycleEvents={cycleEvents}
+        />
+      </div>
 
       <Card variant="sunken">
         <CardHeader>

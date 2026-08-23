@@ -239,6 +239,16 @@ export const MEAL_SLOT_ORDER: MealSlotKey[] = [
   'drink',
 ];
 
+/**
+ * The slots a day is normally built from.
+ *
+ * Used by the completeness score, which asks "was the day's eating recorded",
+ * not "was anything recorded at all". A lone snack is a real entry but it is
+ * not a day's food, so it counts as half — see `dayCompleteness` in
+ * `src/services/progress/completeness.ts`.
+ */
+export const MAIN_MEAL_SLOTS: MealSlotKey[] = ['breakfast', 'lunch', 'dinner'];
+
 export const SYMPTOM_GROUP_LABELS = {
   gi: 'Magen & Darm',
   systemic: 'Allgemein',
@@ -304,3 +314,32 @@ export const WEEKDAY_LABELS = [
   'Samstag',
   'Sonntag',
 ] as const;
+
+/**
+ * The five values the daily check calls its "Kernwerte".
+ *
+ * They were an anonymous array inside `daily-log-form.tsx`, counted there to
+ * fill a ProgressRing. The completeness score needs exactly the same five, and
+ * two hand-maintained copies of "which fields matter" would drift the first
+ * time a field is added — so the list lives here and both read it.
+ *
+ * `wellbeing` is deliberately NOT among them even though it is a top-level
+ * column: it is the "Beschwerden allgemein" score, and completeness counts it
+ * as its own building block instead.
+ */
+export const CORE_DAILY_FIELDS = [
+  'jointPain',
+  'morningStiffnessMinutes',
+  'fatigue',
+  'sleepQuality',
+  'stress',
+] as const;
+
+export type CoreDailyField = (typeof CORE_DAILY_FIELDS)[number];
+
+/** How many of the five core values are filled in. */
+export function countCoreDailyFields(
+  values: Partial<Record<CoreDailyField, number | null>>
+): number {
+  return CORE_DAILY_FIELDS.filter((field) => values[field] != null).length;
+}

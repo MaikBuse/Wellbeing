@@ -111,10 +111,10 @@
    * fallback stack. The names must differ from the next/font ones or the
    * var() reference would be self-referential.
    */
-  --font-display: var(--font-fraunces), ui-serif, Georgia, 'Times New Roman',
-    serif;
-  --font-sans: var(--font-source-sans), ui-sans-serif, system-ui, -apple-system,
-    sans-serif;
+  --font-display:
+    var(--font-fraunces), ui-serif, Georgia, 'Times New Roman', serif;
+  --font-sans:
+    var(--font-source-sans), ui-sans-serif, system-ui, -apple-system, sans-serif;
 
   /*
    * Semantic sizes, deliberately NOT overriding the stock text-sm/base/xl
@@ -169,6 +169,8 @@
   --animate-pop: pop 250ms var(--ease-out-back);
   --animate-check: check 400ms var(--ease-out-soft) forwards;
   --animate-scan: scan 2.2s var(--ease-in-out-soft) infinite;
+  --animate-flicker: flicker 4.5s var(--ease-in-out-soft) infinite;
+  --animate-burst: burst 700ms var(--ease-out-soft) both;
 }
 
 @keyframes rise {
@@ -215,6 +217,40 @@
   }
   100% {
     transform: translateY(100%);
+    opacity: 0;
+  }
+}
+
+/*
+ * The streak flame's halo. Deliberately slow and shallow — a 4.5 s cycle at
+ * three percent scale reads as warmth, not as a notification badge demanding
+ * attention. Anything livelier on a screen someone opens while unwell would be
+ * the wrong register.
+ *
+ * The number itself never moves: only the glow behind it does, so the figure
+ * stays readable and tabular-nums has nothing to fight.
+ */
+@keyframes flicker {
+  0%,
+  100% {
+    transform: scale(1);
+    opacity: 0.55;
+  }
+  50% {
+    transform: scale(1.03);
+    opacity: 0.75;
+  }
+}
+
+/* One expanding ring for a milestone. Fires once, then it is gone — this is a
+ * celebration, not a loop. */
+@keyframes burst {
+  from {
+    transform: scale(0.4);
+    opacity: 0.55;
+  }
+  to {
+    transform: scale(1.9);
     opacity: 0;
   }
 }

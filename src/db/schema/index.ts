@@ -8,3 +8,4 @@ export * from './daily';
 export * from './medication';
 export * from './elimination';
 export * from './analytics';
+export * from './progress';

@@ -32,12 +32,28 @@ function expire(paths: readonly string[]): void {
   }
 }
 
-/** Both screens that render a logical day: "Heute" and a dated day. */
-const DAY = ['/', '/day/[date]'] as const;
+/**
+ * Every screen whose content is a function of a logical day's rows.
+ *
+ * `/progress` belongs here and not in a set of its own: the streak and the
+ * completeness ring are derived from the very rows these mutations write, so a
+ * meal added on "Heute" makes the progress screen stale in exactly the same
+ * breath. Leaving it out would reproduce the bug this module exists to prevent
+ * — a new food revalidating `/foods` but not `/`.
+ */
+const DAY = ['/', '/day/[date]', '/progress'] as const;
 
 /** Meals, reactions, the daily check — anything that belongs to one day. */
 export function revalidateDay(): void {
   expire(DAY);
+}
+
+/**
+ * Acknowledging a milestone. Narrower than `revalidateDay` on purpose: it
+ * changes which badge is celebrated, not what any day contains.
+ */
+export function revalidateProgress(): void {
+  expire(['/', '/progress']);
 }
 
 /**
