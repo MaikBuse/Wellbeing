@@ -48,11 +48,16 @@ import {
  *
  * IT STOPS WHEN NOBODY IS LOOKING, BUT NOT AT ONCE. This app is installed as a
  * PWA and stays open for days (see the comment in `use-media-query.ts`), so a
- * loop that ran while the tab was hidden or the figure was tucked away would
- * just be a battery cost. A hidden tab therefore pauses immediately — but an
- * empty rectangle does not, because a page change empties it for about a second
- * and pausing on that was what made him freeze mid-step and come back breathing.
- * See `PAUSE_AFTER_MS`.
+ * loop that ran while the tab was hidden would just be a battery cost. A hidden
+ * tab therefore pauses immediately — but an empty rectangle does not, because a
+ * page change empties it for about a second and pausing on that was what made
+ * him freeze mid-step and come back breathing. See `PAUSE_AFTER_MS`.
+ *
+ * The dock used to duck behind the bar while the page was scrolled, which took
+ * the element out of the viewport and paused this loop as a side effect. That
+ * tuck is gone, so while the page is visible the loop now runs. The case that
+ * actually costs battery — the app sitting in the background for hours — is the
+ * hidden-tab one, and that still pauses on the spot.
  *
  * EVERY POSE IS GIVEN BACK. The triggers in this file do not end by themselves —
  * see the comment over `MOOD_GESTURE`. One timer owns that, and it is shared

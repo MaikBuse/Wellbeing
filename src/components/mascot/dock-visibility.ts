@@ -7,8 +7,11 @@
  * the server re-renders the tree. That is a beat later than the tap, and without
  * this a 144 px drawing would simply blink out of existence — after an entrance
  * that was choreographed frame by frame. `MascotDockFrame` already knows how to
- * duck behind the bar (`tucked` drives `translateY(120%)`); this is how the
+ * duck behind the bar (`hidden` drives `translateY(120%)`); this is how the
  * button gets to ask for it.
+ *
+ * Since the scroll-driven tuck was removed, this and "not loaded yet" are the
+ * only two things that move the figure at all.
  *
  * A module-level store with a listener set rather than context: the two
  * components are in different parts of the layout with no common client parent,

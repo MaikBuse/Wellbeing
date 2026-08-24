@@ -54,9 +54,15 @@ import type { MascotMood } from '@/services/nutrition/mascot';
  * through the door on every page change would be a widget. It waits for `MascotCanvas` to report a
  * loaded file, because there is no still frame behind it any more: before that
  * there is nothing to see, and an empty 144 px box that still took taps would
- * be a trap in the corner. The same transform takes him away while the page is
- * scrolled: a companion that sat on top of the last card would be furniture in
- * the way, and one that vanished entirely would be a bug.
+ * be a trap in the corner.
+ *
+ * SCROLLING DOES NOT MOVE HIM. He used to duck behind the bar on the way down
+ * and come back 600 ms after the last scroll event, on the theory that a
+ * companion standing over the last card is furniture in the way. On a phone it
+ * read as blinking out instead, and a figure that leaves whenever the thumb
+ * moves is not standing anywhere. The same `translateY(120%)` still carries the
+ * two departures that ARE about him — not loaded yet, and asked to leave — and
+ * those are the only things that move him now.
  *
  * UNDER `prefers-reduced-motion: reduce` THERE IS NO COMPANION. The drawing is
  * the only depiction there is, and it is the one thing that preference rules
@@ -66,12 +72,6 @@ import type { MascotMood } from '@/services/nutrition/mascot';
  * No health data reaches the canvas. The sentence beside him and the panel
  * inside the sheet arrive as server markup through `chip` and `panel`.
  */
-
-/** Scroll movement that counts as intent rather than as a thumb resting. */
-const SCROLL_THRESHOLD = 8;
-
-/** Quiet again this long after the last scroll event. */
-const SETTLE_MS = 600;
 
 export function MascotDockFrame({
   character,
@@ -100,7 +100,6 @@ export function MascotDockFrame({
 }) {
   const reduced = useReducedMotion();
   const [ready, setReady] = useState(false);
-  const [tucked, setTucked] = useState(false);
   /*
    * Asked to leave by the header button, which writes a column — so the tree
    * re-renders him away a beat after the tap. This is how he walks off in that
@@ -167,30 +166,6 @@ export function MascotDockFrame({
     // `fire` is stable, so this still runs only when a counter moves.
   }, [pulse, fire]);
 
-  // Out of the way while reading, back when the page settles.
-  useEffect(() => {
-    if (reduced) return;
-    let last = window.scrollY;
-    let settle: ReturnType<typeof setTimeout> | null = null;
-
-    const onScroll = () => {
-      const y = window.scrollY;
-      const delta = y - last;
-      if (Math.abs(delta) > SCROLL_THRESHOLD) {
-        setTucked(delta > 0 && y > 0);
-        last = y;
-      }
-      if (settle !== null) clearTimeout(settle);
-      settle = setTimeout(() => setTucked(false), SETTLE_MS);
-    };
-
-    window.addEventListener('scroll', onScroll, { passive: true });
-    return () => {
-      window.removeEventListener('scroll', onScroll);
-      if (settle !== null) clearTimeout(settle);
-    };
-  }, [reduced]);
-
   /*
    * Cleared on mount, not only by the toggle: if the server render brings him
    * back for any other reason, a flag left standing would hold him behind the
@@ -200,7 +175,9 @@ export function MascotDockFrame({
     setLeaving(false);
   }, []);
 
-  const hidden = !ready || tucked || leaving;
+  // Only the two states that are about the figure itself: nothing to draw yet,
+  // or on his way out. Not the scroll position.
+  const hidden = !ready || leaving;
 
   // The drawing is the whole depiction, so without it there is no dock at all.
   if (reduced) return null;
