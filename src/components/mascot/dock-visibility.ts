@@ -49,3 +49,35 @@ export function setLeaving(next: boolean): void {
   leaving = next;
   for (const listener of listeners) listener();
 }
+
+/*
+ * "He has already walked in" — the same module, for the same reason.
+ *
+ * The entrance used to hang on a mount, which made it a promise about React's
+ * reconciliation rather than about the app: it fired whenever the island
+ * happened to be created and it fired again whenever it happened to be created
+ * again. Here it is a fact about the SESSION, so it survives every navigation,
+ * every revalidation and every Fast Refresh, and the rule is written down
+ * instead of inferred.
+ *
+ * No listener set and no `getServerSnapshot`: this is read imperatively at the
+ * moment the drawing reports itself loaded, never rendered, so nothing has to
+ * subscribe to it and there is no hydration question to answer.
+ */
+let walkedIn = false;
+
+export function hasWalkedIn(): boolean {
+  return walkedIn;
+}
+
+export function markWalkedIn(): void {
+  walkedIn = true;
+}
+
+/**
+ * Fetched back by hand, or swapped for the other figure: either is an arrival,
+ * and an arrival is exactly what the walk cycle is for.
+ */
+export function resetWalkIn(): void {
+  walkedIn = false;
+}

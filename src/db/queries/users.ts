@@ -3,6 +3,7 @@ import { eq } from 'drizzle-orm';
 import { db } from '../index';
 import { appUsers, userSettings } from '../schema';
 import { DEFAULT_DAY_START_HOUR, DEFAULT_TIME_ZONE } from '@/lib/time';
+import type { MascotCharacter } from '@/components/mascot/rive-asset';
 
 export type UserSettings = {
   timeZone: string;
@@ -14,6 +15,8 @@ export type UserSettings = {
   showMascot: boolean;
   /** Whether the figure stands in the corner. Narrower than `showMascot`. */
   showMascotFigure: boolean;
+  /** Which of the two figures. Amber unless somebody picked otherwise. */
+  mascotCharacter: MascotCharacter;
 };
 
 /**
@@ -74,6 +77,7 @@ export const getUserSettings = cache(async function getUserSettings(
       countTraceExposure: false,
       showMascot: true,
       showMascotFigure: true,
+      mascotCharacter: 'merv',
     };
   }
   return {
@@ -84,5 +88,6 @@ export const getUserSettings = cache(async function getUserSettings(
     countTraceExposure: row.countTraceExposure,
     showMascot: row.showMascot,
     showMascotFigure: row.showMascotFigure,
+    mascotCharacter: row.mascotCharacter,
   };
 });

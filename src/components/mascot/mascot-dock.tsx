@@ -6,6 +6,7 @@ import { loadCompanion } from '@/services/companion/loader';
 import type { CompanionNote } from '@/services/companion/agenda';
 import { MascotDockFrame } from './mascot-dock-frame';
 import { HAS_RIVE } from './artwork';
+import { CHARACTER_NAME } from './rive-asset';
 
 /**
  * The companion, on every screen of the app.
@@ -73,6 +74,7 @@ export async function MascotDock() {
 
   return (
     <MascotDockFrame
+      character={settings.mascotCharacter}
       mood={data.state.mood}
       pulse={data.pulse}
       label={label}
@@ -91,8 +93,8 @@ export async function MascotDock() {
             <NotePanel key={note.topic} note={note} mood={mood} muted />
           ))}
           <p className="text-xs text-muted">
-            Orson steht in der Ecke, solange du ihn dort haben willst — der
-            Schalter dafür liegt unter{' '}
+            {CHARACTER_NAME[settings.mascotCharacter]} steht in der Ecke, solange
+            du ihn dort haben willst — der Schalter dafür liegt unter{' '}
             <Link href="/settings" className="text-primary-strong">
               Mehr
             </Link>

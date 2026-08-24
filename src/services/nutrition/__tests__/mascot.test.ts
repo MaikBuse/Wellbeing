@@ -1,6 +1,6 @@
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
 import type { NutrientKey } from '@/lib/nutrients';
 import { nutritionDay } from '../score';
 import { NUTRIENT_TARGETS } from '../targets/catalog';
@@ -23,6 +23,11 @@ import {
   REST_TRIGGER,
   type MascotCue,
 } from '@/components/mascot/rive-asset';
+import {
+  hasWalkedIn,
+  markWalkedIn,
+  resetWalkIn,
+} from '@/components/mascot/dock-visibility';
 import { NUTRITION_TEST_TARGETS, ON_TARGET } from './helpers';
 import { dayWith, minTarget, total } from './fixtures';
 
@@ -495,8 +500,8 @@ describe('die Regungen', () => {
   });
 
   /*
-   * The four faces this app never wears. Orson can look angry, terrified and
-   * intensely sad; a symptom diary has no business doing any of the three at
+   * The four faces this app never wears. Both figures can look angry, terrified
+   * and intensely sad; a symptom diary has no business doing any of the three at
    * the person keeping it. `Sad` is the one exception and it belongs to
    * `concerned` alone, which the test above pins down.
    */
@@ -522,5 +527,92 @@ describe('die Regungen', () => {
    */
   it('has a way back to standing', () => {
     expect(REST_TRIGGER).toBe('anim_breathLOOP');
+  });
+});
+
+/**
+ * The entrance happens once.
+ *
+ * It used to hang on a mount, which made it a promise about React's
+ * reconciliation rather than about the app — and the complaint that produced
+ * this file was exactly that: a companion who ducked away and came back on
+ * every page change. The walk cycle belongs to an arrival, and there is one
+ * arrival per session plus the ones somebody asks for by hand.
+ */
+describe('der Auftritt', () => {
+  beforeEach(() => {
+    resetWalkIn();
+  });
+
+  it('has not happened before the drawing loads', () => {
+    expect(hasWalkedIn()).toBe(false);
+  });
+
+  it('stays true once he is here, however often it is asked', () => {
+    markWalkedIn();
+    expect(hasWalkedIn()).toBe(true);
+    expect(hasWalkedIn()).toBe(true);
+  });
+
+  it('starts over when he is fetched back by hand', () => {
+    markWalkedIn();
+    resetWalkIn();
+    expect(hasWalkedIn()).toBe(false);
+  });
+
+  /*
+   * Coarse on purpose: the unit tests above carry the real weight, and this
+   * only pins that the dock still asks. An unguarded `fire('entrance')` is the
+   * regression that would bring the whole complaint back, and it would look
+   * completely innocent in a diff.
+   */
+  it('is never fired unguarded by the dock', () => {
+    const source = readFileSync(
+      'src/components/mascot/mascot-dock-frame.tsx',
+      'utf8'
+    ).replace(/\/\*[\s\S]*?\*\//g, ' ');
+    expect(source).toMatch(/hasWalkedIn\(\)/);
+    expect(source).toMatch(/markWalkedIn\(\)/);
+  });
+});
+
+/**
+ * The pause is slower than the transition it used to trip over.
+ *
+ * `PAUSE_AFTER_MS` is not a taste number: while a page changes, the figure is
+ * drawn through `::view-transition-*(site-mascot)` pseudo-elements, and for
+ * that whole window the IntersectionObserver reads the real element as gone.
+ * Pausing there froze him mid-step. The number therefore has to outlast the
+ * longest chain of transitions the stylesheet can produce, and this is what
+ * keeps the two in the same conversation when either is edited.
+ */
+describe('die aufgeschobene Pause', () => {
+  it('outlasts two of the longest view transitions in the stylesheet', () => {
+    const canvas = readFileSync(
+      'src/components/mascot/mascot-canvas.tsx',
+      'utf8'
+    );
+    const declared = canvas.match(/const PAUSE_AFTER_MS = (\d+);/);
+    expect(declared).not.toBeNull();
+    const pauseAfter = Number(declared?.[1]);
+
+    const css = readFileSync('src/app/globals.css', 'utf8');
+    const viewTransitions = css.slice(css.indexOf('::view-transition'));
+    // Every duration and delay in an animation shorthand, in milliseconds.
+    const durations = [...viewTransitions.matchAll(/(\d+)ms/g)].map((m) =>
+      Number(m[1])
+    );
+    expect(durations.length).toBeGreaterThan(0);
+
+    /*
+     * The two largest numbers in that section are the duration and the delay of
+     * the slowest animation, so their sum is one transition at its longest — a
+     * deliberate over-estimate, since the real pair is 400ms + 150ms. Doubled,
+     * because tapping a tab runs two transitions back to back: the nav slide,
+     * then the handoff from `(app)/loading.tsx` to the content.
+     */
+    const distinct = [...new Set(durations)].sort((a, b) => b - a);
+    const worstChain = (distinct[0] + distinct[1]) * 2;
+    expect(pauseAfter).toBeGreaterThan(worstChain);
   });
 });

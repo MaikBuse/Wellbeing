@@ -9,6 +9,7 @@ import {
   uuid,
 } from 'drizzle-orm/pg-core';
 import { createdAt, pk, tsz, updatedAt } from './_helpers';
+import { mascotCharacter } from './enums';
 
 /**
  * Own user table, no Auth.js adapter: sessions are JWT, so there is no
@@ -66,6 +67,22 @@ export const userSettings = pgTable(
      * a cartoon on top of it had no way to be said before.
      */
     showMascotFigure: boolean('show_mascot_figure').notNull().default(true),
+    /**
+     * Which of the two figures. Amber by default.
+     *
+     * Amber ('merv') and not violet: its tone sits almost exactly on
+     * --color-primary, so the companion reads as part of this app rather than
+     * as a visitor from another one. `0c41f27` picked violet when it reduced two
+     * figures to one, and that was the wrong half of the trade.
+     *
+     * NOT called `color`, although the two differ mainly by colour: the colour
+     * is a keyframe of the figure inside the .riv and nothing can set it (see
+     * `rive-asset.ts`). A column named after the colour would promise a palette
+     * that does not exist.
+     */
+    mascotCharacter: mascotCharacter('mascot_character')
+      .notNull()
+      .default('merv'),
     updatedAt: updatedAt(),
   },
   (t) => [

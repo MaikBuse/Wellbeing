@@ -177,3 +177,13 @@ export const dietForm = pgEnum('diet_form', [
 ]);
 /** Where the body weight behind a weight-scaled target comes from. */
 export const weightSource = pgEnum('weight_source', ['daily_log', 'manual']);
+
+/**
+ * Which of the two figures in the .riv stands in the corner.
+ *
+ * Exactly two, and the asset is the reason it can never grow: a third figure
+ * means a different `.riv`, not another value. Lowercase here, capitalised in
+ * `rive-asset.ts` — the file's own enum values are 'Merv' and 'Orson', and that
+ * mapping is the one place the artwork's vocabulary is allowed to appear.
+ */
+export const mascotCharacter = pgEnum('mascot_character', ['merv', 'orson']);

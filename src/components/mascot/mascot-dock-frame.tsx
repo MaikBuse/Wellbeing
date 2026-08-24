@@ -12,12 +12,14 @@ import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet';
 import { useReducedMotion } from '@/lib/use-media-query';
 import { MascotCanvas } from './mascot-canvas';
 import {
+  hasWalkedIn,
   isLeaving,
   leavingServerSnapshot,
+  markWalkedIn,
   setLeaving,
   subscribeLeaving,
 } from './dock-visibility';
-import type { MascotCue } from './rive-asset';
+import type { MascotCharacter, MascotCue } from './rive-asset';
 import type { MascotMood } from '@/services/nutrition/mascot';
 
 /**
@@ -44,9 +46,12 @@ import type { MascotMood } from '@/services/nutrition/mascot';
  * `bottom-nav.tsx` uses for its items: on a wide screen he stands at the edge of
  * the column he belongs to instead of floating in the empty gutter.
  *
- * HE STEPS OUT AND HE STEPS BACK. The entrance is this element sliding up while
- * the drawing plays its walk cycle — the walk is on the spot, so neither half
- * reads as walking without the other. It waits for `MascotCanvas` to report a
+ * HE STEPS OUT ONCE. The entrance is this element sliding up while the drawing
+ * plays its walk cycle — the walk is on the spot, so neither half reads as
+ * walking without the other. It happens once per session and not once per mount:
+ * `hasWalkedIn` in `dock-visibility.ts` is what makes that a property of the app
+ * rather than of React's reconciliation, because a companion who came back
+ * through the door on every page change would be a widget. It waits for `MascotCanvas` to report a
  * loaded file, because there is no still frame behind it any more: before that
  * there is nothing to see, and an empty 144 px box that still took taps would
  * be a trap in the corner. The same transform takes him away while the page is
@@ -69,6 +74,7 @@ const SCROLL_THRESHOLD = 8;
 const SETTLE_MS = 600;
 
 export function MascotDockFrame({
+  character,
   mood,
   pulse,
   label,
@@ -76,6 +82,8 @@ export function MascotDockFrame({
   chip,
   panel,
 }: {
+  /** Which figure. Keys the canvas, so a change swaps the instance. */
+  character: MascotCharacter;
   mood: MascotMood;
   pulse: {
     foodGrams: number;
@@ -118,7 +126,9 @@ export function MascotDockFrame({
    * Step out when there is something to step out with.
    *
    * `MascotCanvas` calls this from `onLoad`, so the slide-up and the walk cycle
-   * begin on the same frame. Stable identity on purpose: the canvas holds this
+   * begin on the same frame — the FIRST time. After that he is already here, and
+   * a drawing that finished loading again is not an arrival. Stable identity on
+   * purpose: the canvas holds this
    * for the whole life of its Rive instance and deliberately keeps it out of the
    * effect's dependencies, so a new function every render would be a lie about
    * what it is holding.
@@ -126,7 +136,9 @@ export function MascotDockFrame({
   const onReadyChange = useCallback(
     (next: boolean) => {
       setReady(next);
-      if (next) fire('entrance');
+      if (!next || hasWalkedIn()) return;
+      markWalkedIn();
+      fire('entrance');
     },
     [fire]
   );
@@ -220,7 +232,20 @@ export function MascotDockFrame({
             aria-label={label}
             className="relative block size-36 shrink-0 overflow-hidden"
           >
+            {/*
+             * Keyed on the figure, so choosing the other one REMOUNTS this: the
+             * old instance is cleaned up, `onReadyChange(false)` takes the dock
+             * back behind the bar, and the new figure steps out with its walk
+             * cycle once it has loaded. That is exactly the choreography a swap
+             * wants, and it costs no download — the runtime chunk is already
+             * imported and the .riv is in the HTTP cache. The alternative, an
+             * effect that re-assigns the enum in place, would have to get a
+             * stale closure in `onLoad`, a double assignment on `ready` and the
+             * mood after the swap all right; this gets them for free.
+             */}
             <MascotCanvas
+              key={character}
+              character={character}
               mood={mood}
               cue={cue}
               cueToken={cueToken}

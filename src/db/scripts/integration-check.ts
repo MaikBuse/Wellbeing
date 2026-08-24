@@ -2352,6 +2352,23 @@ console.log('\nnährstoff-ziele');
     stored.showMascotFigure === true,
     String(stored.showMascotFigure)
   );
+  /*
+   * Which figure, on both branches, and `0c41f27` is why it earns two lines: the
+   * app shipped violet for a while. A default that is right in the mapping but
+   * not in the column — or the reverse — would put violet back for exactly the
+   * accounts that never touched the setting, and nothing about the running app
+   * would look wrong while it did.
+   */
+  check(
+    'a user without a settings row gets the amber figure',
+    defaults.mascotCharacter === 'merv',
+    defaults.mascotCharacter
+  );
+  check(
+    'and the column carries the same figure as its default',
+    stored.mascotCharacter === 'merv',
+    stored.mascotCharacter
+  );
 
   // --- Profile versioning --------------------------------------------------
   await db.insert(userNutritionProfiles).values({

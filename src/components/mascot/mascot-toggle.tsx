@@ -6,7 +6,7 @@ import { toast } from 'sonner';
 import { setShowMascotFigure } from '@/actions/settings';
 import { Button } from '@/components/ui/button';
 import { useReducedMotion } from '@/lib/use-media-query';
-import { setLeaving } from './dock-visibility';
+import { resetWalkIn, setLeaving } from './dock-visibility';
 
 /**
  * Send the figure away, and fetch him back, from wherever you happen to be.
@@ -50,6 +50,8 @@ export function MascotToggle({ enabled }: { enabled: boolean }) {
       // Duck behind the bar now; the server render removes him a beat later,
       // by which time he is already out of sight.
       setLeaving(!next);
+      // Fetched back by hand: that is an arrival, so let him walk in again.
+      if (next) resetWalkIn();
       const result = await setShowMascotFigure({ showMascotFigure: next });
       if (!result.ok) {
         setLeaving(false);

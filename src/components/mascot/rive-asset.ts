@@ -43,19 +43,33 @@ export const FACE_PROPERTY = 'FaceEmotion';
 export const CHARACTER_PROPERTY = 'CharacterSelect';
 
 /*
- * "Orson", the violet one.
+ * The two figures, and which one is which.
  *
  * The enum `Characters` has exactly two values, and their colours are keyframes
  * in the file rather than a property anything can set: `col_merv` is amber
  * (#84501A, #704316), `col_orson` is violet (#492C70, #583784), and `col_select`
- * slaves them to the enum below. So there is no third colour short of editing
- * the .riv, and no way to recolour either figure at runtime.
+ * slaves them to the enum. So there is no third colour short of editing the
+ * .riv, and no way to recolour either figure at runtime — which is why the
+ * setting is a FIGURE and not a colour, in the column name as much as here.
  *
- * Merv's amber sat almost exactly on --color-primary. Orson's violet does not,
- * and that is the trade: he reads as his own element on #fcf8f9 rather than as
- * part of the apricot the buttons are made of.
+ * Merv's amber sits almost exactly on --color-primary, and it is the default for
+ * that reason. Orson's violet reads as his own element on #fcf8f9 instead,
+ * rather than as part of the apricot the buttons are made of. Which of those is
+ * presence and which is intrusion is taste — which is what makes it a setting
+ * rather than a constant.
+ *
+ * ONE TABLE AND NOT TWO. The name in the file and the name in the UI are the
+ * same string: these are the artist's names for the figures, not copy, and there
+ * is nothing about them to translate.
  */
-export const CHARACTER = 'Orson';
+export const MASCOT_CHARACTERS = ['merv', 'orson'] as const;
+
+export type MascotCharacter = (typeof MASCOT_CHARACTERS)[number];
+
+export const CHARACTER_NAME: Record<MascotCharacter, string> = {
+  merv: 'Merv',
+  orson: 'Orson',
+};
 
 /**
  * Mood to face.
@@ -171,19 +185,29 @@ export type MoodTarget = {
  *
  * Separate from `applyMood` because it must not run on every mood change: the
  * enum assignment restarts the character's entry animation, and a figure that
- * re-materialised whenever the salt total moved would be absurd.
+ * re-materialised whenever the salt total moved would be absurd. When the
+ * SETTING changes, that restart is the whole point — and the dock gets it by
+ * remounting the canvas (`key={character}` in `mascot-dock-frame.tsx`) rather
+ * than by re-assigning here.
  *
- * Orson happens to be index 0 of `Characters`, so this now sets the enum to the
- * value it already holds and a failure degrades to the RIGHT figure rather than
- * to the other one. It stays explicit anyway: the choice belongs in the code,
- * not in whichever value the artist happened to author first.
+ * A FAILURE NOW DEGRADES TO THE WRONG FIGURE. This used to read the other way
+ * round, and the inversion is why it is written down: Orson is index 0 of
+ * `Characters`, so he is what the file draws when nothing sets the enum, while
+ * the default this app ships is Merv. There is nothing to do about it from
+ * inside the catch — a value cannot be set on a property that is not there — so
+ * "violet appeared and I chose amber" should read as this line and not as a lost
+ * column.
  */
-export function initCharacter(rive: MoodTarget): void {
+export function initCharacter(
+  rive: MoodTarget,
+  character: MascotCharacter
+): void {
   try {
     const pick = rive.viewModelInstance?.enum(CHARACTER_PROPERTY);
-    if (pick) pick.value = CHARACTER;
+    if (pick) pick.value = CHARACTER_NAME[character];
   } catch {
-    // Then the default character stands there instead. Still a mascot.
+    // Then index 0 of `Characters` — Orson — stands there instead. Still a
+    // mascot, just not the one that was asked for.
   }
 }
 
@@ -245,5 +269,5 @@ export const ASSET_ATTRIBUTION = {
   licence: 'CC BY 4.0',
   licenceUrl: 'https://creativecommons.org/licenses/by/4.0/',
   changesDe:
-    'Figur „Orson“ gewählt, drei der acht Gesichter den Stimmungen zugeordnet, sechs der elf Bewegungen verwendet.',
+    'Beide Figuren („Merv“, „Orson“) wählbar, Standard „Merv“, drei der acht Gesichter den Stimmungen zugeordnet, sechs der elf Bewegungen verwendet.',
 } as const;

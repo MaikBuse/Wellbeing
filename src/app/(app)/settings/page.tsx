@@ -10,6 +10,7 @@ import { PageHeader } from '@/components/ui/page-header';
 import { InstallPrompt } from '@/components/pwa/install-prompt';
 import { ASSET_ATTRIBUTION } from '@/components/mascot/rive-asset';
 import { HAS_RIVE } from '@/components/mascot/artwork';
+import { MascotFigureChoice } from '@/components/settings/mascot-figure-choice';
 import { MascotFigureSwitch } from '@/components/settings/mascot-figure-switch';
 import { MascotSwitch } from '@/components/settings/mascot-switch';
 import { TrackWeightSwitch } from '@/components/settings/track-weight-switch';
@@ -51,15 +52,27 @@ export default async function SettingsPage() {
         <div className="mt-3 space-y-4">
           <TrackWeightSwitch enabled={settings.trackWeight} />
           <MascotSwitch enabled={settings.showMascot} />
-          {/* Indented under the switch above, because it only means anything
-            * while that one is on. The header carries the same toggle. Gone
-            * entirely without the asset: there is no figure to have an opinion
-            * about, and the header shows no button either. */}
+          {/* Both indented under the switch above, because neither means
+            * anything while that one is off. The header carries the same
+            * toggle; the figure choice has no second home. Gone entirely
+            * without the asset: there is no figure to have an opinion about,
+            * and the header shows no button either.
+            *
+            * The choice hangs off `showMascot` and NOT off `showMascotFigure`,
+            * although it is indented under it: that column is flipped from the
+            * header on every screen, and somebody who has sent the figure away
+            * is allowed to pick which one comes back. */}
           {HAS_RIVE ? (
-            <MascotFigureSwitch
-              enabled={settings.showMascotFigure}
-              parentEnabled={settings.showMascot}
-            />
+            <>
+              <MascotFigureSwitch
+                enabled={settings.showMascotFigure}
+                parentEnabled={settings.showMascot}
+              />
+              <MascotFigureChoice
+                value={settings.mascotCharacter}
+                parentEnabled={settings.showMascot}
+              />
+            </>
           ) : null}
         </div>
       </Card>

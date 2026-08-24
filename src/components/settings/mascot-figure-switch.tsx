@@ -4,6 +4,7 @@ import { useOptimistic, useTransition } from 'react';
 import { toast } from 'sonner';
 import { setShowMascotFigure } from '@/actions/settings';
 import { Switch } from '@/components/ui/switch';
+import { resetWalkIn } from '@/components/mascot/dock-visibility';
 
 /**
  * The narrower half of the companion question.
@@ -36,6 +37,9 @@ export function MascotFigureSwitch({
   function toggle(next: boolean) {
     startTransition(async () => {
       setOptimistic(next);
+      // Same as the header button: turning him back on is an arrival, and an
+      // arrival is what the walk cycle is for.
+      if (next) resetWalkIn();
       const result = await setShowMascotFigure({ showMascotFigure: next });
       if (!result.ok) toast.error(result.error);
     });
@@ -52,7 +56,7 @@ export function MascotFigureSwitch({
           Figur in der Ecke
         </span>
         <span className="block text-xs text-muted">
-          Orson steht unten rechts auf der Leiste. Ohne ihn bleibt die
+          Die Figur steht unten rechts auf der Leiste. Ohne sie bleibt die
           Einordnung als Text.
         </span>
       </span>

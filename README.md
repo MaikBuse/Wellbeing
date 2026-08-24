@@ -192,13 +192,36 @@ Ein Eigenschaftsname, den es nicht gibt, liefert in der Rive-API `null` statt zu
 werfen. `applyMood` probiert deshalb und schluckt: die Verschlechterung ist
 „die Idle-Animation läuft weiter", kein Fehler im Render.
 
-**Die Farbe ist an die Figur gebunden, nicht einstellbar.** Das Enum
-`Characters` hat genau zwei Werte, und ihre Farben liegen als Keyframes in der
-Datei: `col_merv` ist Amber (#84501A, #704316), `col_orson` Violett (#492C70,
-#583784), und `col_select` hängt sie an `CharacterSelect`. Es gibt keine Farb-,
-Skin- oder Theme-Eigenschaft — eine dritte Farbe hieße, die `.riv` zu
-bearbeiten. Gewählt ist `Orson`, das Violett. Das ist zugleich der Enum-Default,
-also fällt ein fehlgeschlagenes `initCharacter` auf die richtige Figur zurück.
+**Die Figur ist wählbar, die Farbe nicht.** Das Enum `Characters` hat genau zwei
+Werte, und ihre Farben liegen als Keyframes in der Datei: `col_merv` ist Amber
+(#84501A, #704316), `col_orson` Violett (#492C70, #583784), und `col_select`
+hängt sie an `CharacterSelect`. Es gibt keine Farb-, Skin- oder
+Theme-Eigenschaft — eine dritte Farbe hieße, die `.riv` zu bearbeiten. Deshalb
+heißt die Einstellung Figur und nicht Farbe: `user_setting.mascot_character`
+(`'merv' | 'orson'`), Standard `merv`, weil Ambers Ton fast genau auf
+`--color-primary` liegt und die Figur damit als Teil dieser App liest. Die
+Chip-Reihe in den Einstellungen nennt die beiden Namen, der Hinweis darunter die
+Farben — zwei nackte Namen wären für niemanden eine Wahl, der beide Figuren noch
+nicht gesehen hat.
+
+Orson ist Index 0 des Enums und damit das, was die Datei zeigt, wenn niemand
+`CharacterSelect` setzt. Ein fehlgeschlagenes `initCharacter` fällt also jetzt
+auf die **falsche** Figur zurück, nicht mehr auf die richtige — „Violett
+erschien, obwohl Amber gewählt ist" ist diese Zeile und keine verlorene Spalte.
+Ein Wechsel in den Einstellungen montiert die Leinwand neu (`key={character}` in
+`mascot-dock-frame.tsx`): die alte Figur geht hinter die Leiste, die neue tritt
+hervor.
+
+**Der Auftritt gehört der Sitzung, die Pause der Geometrie.** Der Walk-Cycle
+läuft einmal pro Sitzung, nicht einmal pro Mount — `hasWalkedIn` in
+`dock-visibility.ts` macht daraus eine Aussage über die App statt über Nexts
+Reconciliation, und die drei Stellen, die ihn zurückholen (Kopfzeilen-Knopf,
+Einstellungs-Schalter, Figurenwechsel), setzen ihn zurück. Und die Pause der
+Zeichnung wartet: während eines Seitenwechsels liegt die Leinwand bis zu ≈1,1 s
+in `::view-transition-*(site-mascot)`-Pseudo-Elementen, wo der
+IntersectionObserver sie für verschwunden hält. Sofort zu pausieren war genau
+das, was als „er verschwindet beim Seitenwechsel und kommt in der Atem-Schleife
+zurück" zu sehen war; ein verborgener Tab pausiert weiterhin sofort.
 
 **Die Runtime bleibt hinter `await import(`.** `@rive-app/canvas-single` bündelt
 seine WASM ins JavaScript — 2,5 MB in einem eigenen Chunk, der in keinem

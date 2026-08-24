@@ -9,11 +9,13 @@ import {
   revalidateSettings,
 } from '@/lib/revalidate';
 import {
+  updateMascotCharacterSchema,
   updateMascotFigureSchema,
   updateMascotSchema,
   updateSettingsSchema,
   updateTraceExposureSchema,
 } from '@/lib/validation/settings';
+import type { MascotCharacter } from '@/components/mascot/rive-asset';
 import type { ActionResult } from './meals';
 
 /**
@@ -158,6 +160,42 @@ export async function setShowMascotFigure(input: {
       target: userSettings.userId,
       set: {
         showMascotFigure: parsed.data.showMascotFigure,
+        updatedAt: new Date(),
+      },
+    });
+
+  revalidateChrome();
+
+  return { ok: true };
+}
+
+/**
+ * Which of the two figures stands there.
+ *
+ * `revalidateChrome` for the same reason as the two flags above: the figure is
+ * rendered by `(app)/layout.tsx`, so the choice changes every route in the group
+ * and not only the screen the chip was tapped on.
+ */
+export async function setMascotCharacter(input: {
+  mascotCharacter: MascotCharacter;
+}): Promise<ActionResult> {
+  const user = await requireUserForAction();
+
+  const parsed = updateMascotCharacterSchema.safeParse(input);
+  if (!parsed.success) {
+    return {
+      ok: false,
+      error: parsed.error.issues[0]?.message ?? 'Eingabe ungültig',
+    };
+  }
+
+  await db
+    .insert(userSettings)
+    .values({ userId: user.id, mascotCharacter: parsed.data.mascotCharacter })
+    .onConflictDoUpdate({
+      target: userSettings.userId,
+      set: {
+        mascotCharacter: parsed.data.mascotCharacter,
         updatedAt: new Date(),
       },
     });

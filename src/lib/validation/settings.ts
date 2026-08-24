@@ -30,3 +30,16 @@ export const updateMascotSchema = z.object({
 export const updateMascotFigureSchema = z.object({
   showMascotFigure: z.boolean(),
 });
+
+/**
+ * Which figure stands in the corner. Cosmetic, like the two flags above.
+ *
+ * The list is restated rather than imported, the way every pgEnum mirror in
+ * `nutritionProfile.ts` is — that keeps this directory free of a runtime
+ * dependency on `src/components/`. It cannot silently drift either: the insert
+ * in `setMascotCharacter` types this against the pgEnum, so a value the .riv
+ * cannot draw does not compile.
+ */
+export const updateMascotCharacterSchema = z.object({
+  mascotCharacter: z.enum(['merv', 'orson']),
+});

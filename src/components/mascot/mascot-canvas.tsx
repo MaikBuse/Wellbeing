@@ -13,6 +13,7 @@ import {
   applyMood,
   initCharacter,
   restPose,
+  type MascotCharacter,
   type MascotCue,
   type MoodTarget,
 } from './rive-asset';
@@ -45,16 +46,35 @@ import {
  * it stays away, untappable, until the drawing is actually loaded. Which also
  * means the walk cycle and the slide-up now start on the same frame.
  *
- * IT STOPS WHEN NOBODY IS LOOKING. This app is installed as a PWA and stays
- * open for days (see the comment in `use-media-query.ts`), so a loop that ran
- * while the tab was hidden or the figure was tucked away would just be a battery
- * cost.
+ * IT STOPS WHEN NOBODY IS LOOKING, BUT NOT AT ONCE. This app is installed as a
+ * PWA and stays open for days (see the comment in `use-media-query.ts`), so a
+ * loop that ran while the tab was hidden or the figure was tucked away would
+ * just be a battery cost. A hidden tab therefore pauses immediately — but an
+ * empty rectangle does not, because a page change empties it for about a second
+ * and pausing on that was what made him freeze mid-step and come back breathing.
+ * See `PAUSE_AFTER_MS`.
  *
  * EVERY POSE IS GIVEN BACK. The triggers in this file do not end by themselves —
  * see the comment over `MOOD_GESTURE`. One timer owns that, and it is shared
  * between the mood gesture and the cue so that a meal recorded during a wave
  * cancels the wave's return rather than racing it.
  */
+
+/**
+ * How long an empty rectangle has to last before it is worth pausing for.
+ *
+ * Longer than a view transition, and than two of them back to back. Tapping a
+ * tab runs the nav slide (~550 ms) and then, because `(app)/loading.tsx` exists,
+ * the skeleton-to-content handoff (~550 ms) — and for that whole time this
+ * element is not being rendered directly but through
+ * `::view-transition-*(site-mascot)` pseudo-elements, which the
+ * IntersectionObserver below reads as gone. Pausing there froze the figure for
+ * the transition and dropped him back into the breathing loop afterwards, which
+ * is what "he disappears when I change pages" actually was.
+ *
+ * Raise this if the durations in `globals.css` are ever raised.
+ */
+const PAUSE_AFTER_MS = 1500;
 
 /*
  * Module scope on purpose: this has to be shared between instances, and React
@@ -64,11 +84,17 @@ import {
 let claimed = false;
 
 export function MascotCanvas({
+  character,
   mood,
   cue,
   cueToken,
   onReadyChange,
 }: {
+  /**
+   * Which figure to draw. Read once, in `onLoad`, and never re-applied: the dock
+   * keys this component on it, so a different figure is a different instance.
+   */
+  character: MascotCharacter;
   mood: MascotMood;
   /** The last thing the person did, or null. */
   cue: MascotCue | null;
@@ -121,11 +147,29 @@ export function MascotCanvas({
     // Paused for either reason, resumed only when both are clear again.
     let visible = true;
     let onScreen = true;
+    let pauseTimer: ReturnType<typeof setTimeout> | null = null;
     const sync = () => {
       const rive = riveRef.current;
       if (rive === null) return;
-      if (visible && onScreen) rive.play();
-      else rive.pause();
+      if (pauseTimer !== null) {
+        clearTimeout(pauseTimer);
+        pauseTimer = null;
+      }
+      if (visible && onScreen) {
+        rive.play();
+        return;
+      }
+      // A hidden tab is certain, and it costs battery now.
+      if (!visible) {
+        rive.pause();
+        return;
+      }
+      // An empty rectangle is not certain — see `PAUSE_AFTER_MS`. Only a tuck
+      // that actually lasts is worth pausing for.
+      pauseTimer = setTimeout(() => {
+        pauseTimer = null;
+        riveRef.current?.pause();
+      }, PAUSE_AFTER_MS);
     };
 
     const onVisibility = () => {
@@ -148,7 +192,7 @@ export function MascotCanvas({
         onLoad: () => {
           if (cancelled) return;
           rive.resizeDrawingSurfaceToCanvas();
-          initCharacter(rive);
+          initCharacter(rive, character);
           applyMood(rive, mood);
           holdThenRest();
           // Only now is there anything to look at, which is also the moment
@@ -188,6 +232,7 @@ export function MascotCanvas({
       cancelled = true;
       observer?.disconnect();
       if (idle !== null) clearInterval(idle);
+      if (pauseTimer !== null) clearTimeout(pauseTimer);
       if (restTimer.current !== null) clearTimeout(restTimer.current);
       restTimer.current = null;
       document.removeEventListener('visibilitychange', onVisibility);
@@ -200,6 +245,10 @@ export function MascotCanvas({
     // `mood` is applied by the effect below; re-mounting the runtime for a mood
     // change would throw away the loaded file. `onReadyChange` is left out for
     // the same reason — a new function identity must not reload the file.
+    // `character` is left out as well, and unlike those two it is not re-applied
+    // by any effect: `mascot-dock-frame.tsx` keys this component on it, so a
+    // different figure is a different instance and the value read in `onLoad`
+    // can never be stale.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [reduced]);
 
